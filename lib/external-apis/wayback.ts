@@ -3,6 +3,8 @@
  * Fetches snapshots and historical data from archive.org
  */
 
+import { fetchWithTimeout } from '@/lib/utils/fetch-with-timeout';
+
 export interface WaybackSnapshot {
   url: string;
   timestamp: string;
@@ -48,8 +50,10 @@ export class WaybackMachineAPI {
    */
   async checkAvailability(url: string): Promise<WaybackAvailability> {
     try {
-      const response = await fetch(
-        `${this.baseUrl}/wayback/available?url=${encodeURIComponent(url)}`
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/wayback/available?url=${encodeURIComponent(url)}`,
+        {},
+        3000 // 3s timeout
       );
 
       if (!response.ok) {
@@ -112,7 +116,11 @@ export class WaybackMachineAPI {
       if (from) params.append('from', from);
       if (to) params.append('to', to);
 
-      const response = await fetch(`${this.cdxUrl}?${params.toString()}`);
+      const response = await fetchWithTimeout(
+        `${this.cdxUrl}?${params.toString()}`,
+        {},
+        3000 // 3s timeout for CDX API
+      );
 
       if (!response.ok) {
         throw new Error(`Wayback API error: ${response.statusText}`);

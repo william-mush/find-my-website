@@ -3,6 +3,8 @@
  * Detects CMS, hosting, CDN, and other technologies
  */
 
+import { fetchWithTimeout } from '@/lib/utils/fetch-with-timeout';
+
 export interface SSLCertificate {
   issuer: string;
   validFrom?: Date;
@@ -77,10 +79,14 @@ export class WebsiteAnalyzer {
     let headers: { [key: string]: string } = {};
 
     try {
-      const response = await fetch(url, {
-        method: 'HEAD',
-        redirect: 'follow',
-      });
+      const response = await fetchWithTimeout(
+        url,
+        {
+          method: 'HEAD',
+          redirect: 'follow',
+        },
+        2000 // 2s timeout for website check
+      );
 
       isOnline = true;
       httpStatus = response.status;

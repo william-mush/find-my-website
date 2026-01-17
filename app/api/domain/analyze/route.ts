@@ -6,8 +6,15 @@ import { websiteAnalyzer } from '@/lib/external-apis/website-analyzer';
 import { securityAPI } from '@/lib/external-apis/security';
 import { seoAPI } from '@/lib/external-apis/seo';
 import { domainStatusAnalyzer } from '@/lib/recovery/domain-status-analyzer';
+import { withTimeout } from '@/lib/utils/fetch-with-timeout';
+
+// Vercel serverless timeout is 10s on free tier
+// We need to complete analysis in under 8s to be safe
+export const maxDuration = 10;
 
 export async function POST(request: NextRequest) {
+  const startTime = Date.now();
+
   try {
     const { domain } = await request.json();
 
@@ -23,17 +30,18 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Analysis] Starting comprehensive analysis for: ${cleanDomain}`);
 
-    // Fetch all data in parallel for maximum speed
+    // Fetch critical data first (with 3s timeout each)
+    // These are the most important for domain recovery
     const [
       whoisResult,
       waybackResult,
       dnsResult,
       websiteResult,
     ] = await Promise.allSettled([
-      whoisAPI.lookup(cleanDomain),
-      waybackAPI.getRecoveryInfo(cleanDomain),
-      dnsAPI.analyze(cleanDomain),
-      websiteAnalyzer.analyze(cleanDomain),
+      withTimeout(whoisAPI.lookup(cleanDomain), 3000),
+      withTimeout(waybackAPI.getRecoveryInfo(cleanDomain), 3000),
+      withTimeout(dnsAPI.analyze(cleanDomain), 2000),
+      withTimeout(websiteAnalyzer.analyze(cleanDomain), 2000),
     ]);
 
     // Extract data from results
@@ -42,21 +50,26 @@ export async function POST(request: NextRequest) {
     const dnsData = dnsResult.status === 'fulfilled' ? dnsResult.value : undefined;
     const websiteData = websiteResult.status === 'fulfilled' ? websiteResult.value : undefined;
 
-    console.log(`[Analysis] WHOIS: ${whoisData ? 'OK' : 'FAIL'}, Wayback: ${waybackData ? 'OK' : 'FAIL'}, DNS: ${dnsData ? 'OK' : 'FAIL'}, Website: ${websiteData ? 'OK' : 'FAIL'}`);
+    const phase1Time = Date.now() - startTime;
+    console.log(`[Analysis] Phase 1 (${phase1Time}ms): WHOIS: ${whoisData ? 'OK' : 'FAIL'}, Wayback: ${waybackData ? 'OK' : 'FAIL'}, DNS: ${dnsData ? 'OK' : 'FAIL'}, Website: ${websiteData ? 'OK' : 'FAIL'}`);
 
-    // Perform additional analyses that depend on the initial data
+    // Perform additional analyses with shorter timeouts (1-2s each)
+    // These enhance the results but aren't critical
     const [
       securityResult,
       seoResult,
       statusResult,
     ] = await Promise.allSettled([
-      securityAPI.analyze(cleanDomain, whoisData),
-      seoAPI.analyze(cleanDomain, waybackData, whoisData),
-      domainStatusAnalyzer.analyze(
-        cleanDomain,
-        whoisData,
-        waybackData?.hasContent,
-        websiteData?.isOnline
+      withTimeout(securityAPI.analyze(cleanDomain, whoisData), 1500),
+      withTimeout(seoAPI.analyze(cleanDomain, waybackData, whoisData), 1500),
+      withTimeout(
+        domainStatusAnalyzer.analyze(
+          cleanDomain,
+          whoisData,
+          waybackData?.hasContent,
+          websiteData?.isOnline
+        ),
+        1000
       ),
     ]);
 
@@ -64,7 +77,8 @@ export async function POST(request: NextRequest) {
     const seoData = seoResult.status === 'fulfilled' ? seoResult.value : undefined;
     const statusReport = statusResult.status === 'fulfilled' ? statusResult.value : undefined;
 
-    console.log(`[Analysis] Security: ${securityData ? 'OK' : 'FAIL'}, SEO: ${seoData ? 'OK' : 'FAIL'}, Status: ${statusReport ? 'OK' : 'FAIL'}`);
+    const totalTime = Date.now() - startTime;
+    console.log(`[Analysis] Complete (${totalTime}ms): Security: ${securityData ? 'OK' : 'FAIL'}, SEO: ${seoData ? 'OK' : 'FAIL'}, Status: ${statusReport ? 'OK' : 'FAIL'}`);
 
     // Build comprehensive response
     return NextResponse.json({

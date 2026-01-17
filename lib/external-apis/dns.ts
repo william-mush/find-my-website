@@ -3,6 +3,8 @@
  * Fetches all DNS records for a domain using DNS over HTTPS (DoH)
  */
 
+import { fetchWithTimeout } from '@/lib/utils/fetch-with-timeout';
+
 export interface DNSRecord {
   type: string;
   name: string;
@@ -120,11 +122,15 @@ export class DNSAPI {
   private async lookup(domain: string, type: string): Promise<DNSRecord[]> {
     try {
       const url = `${this.dohUrl}?name=${encodeURIComponent(domain)}&type=${type}`;
-      const response = await fetch(url, {
-        headers: {
-          Accept: 'application/dns-json',
+      const response = await fetchWithTimeout(
+        url,
+        {
+          headers: {
+            Accept: 'application/dns-json',
+          },
         },
-      });
+        2000 // 2s timeout per DNS query
+      );
 
       if (!response.ok) {
         return [];

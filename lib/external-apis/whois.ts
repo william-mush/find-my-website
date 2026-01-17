@@ -3,6 +3,8 @@
  * Fetches domain registration information using HTTP API (Vercel-compatible)
  */
 
+import { fetchWithTimeout } from '@/lib/utils/fetch-with-timeout';
+
 export interface WhoisData {
   domain: string;
   registrar?: string;
@@ -132,11 +134,15 @@ export class WhoisAPI {
     try {
       // Use rdap.org (free, reliable alternative)
       const rdapUrl = `https://rdap.org/domain/${domain}`;
-      const response = await fetch(rdapUrl, {
-        headers: {
-          'Accept': 'application/json',
+      const response = await fetchWithTimeout(
+        rdapUrl,
+        {
+          headers: {
+            'Accept': 'application/json',
+          },
         },
-      });
+        3000 // 3s timeout for WHOIS
+      );
 
       if (!response.ok) {
         throw new Error(`RDAP API error: ${response.statusText}`);
