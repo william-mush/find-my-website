@@ -144,6 +144,33 @@ export class InputValidator {
     const ipv6Regex = /^([0-9a-f]{0,4}:){7}[0-9a-f]{0,4}$/i;
     return ipv6Regex.test(ip);
   }
+
+  /**
+   * Validate domain or IP address
+   */
+  validateDomainOrIP(input: string): { isValid: boolean; type?: 'domain' | 'ip'; sanitized?: string; error?: string } {
+    const trimmed = input.trim();
+
+    // Check if it looks like an IP address
+    const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+    const ipv6Regex = /^([0-9a-f]{0,4}:){7}[0-9a-f]{0,4}$/i;
+
+    if (ipv4Regex.test(trimmed) || ipv6Regex.test(trimmed)) {
+      if (this.validateIP(trimmed)) {
+        return { isValid: true, type: 'ip', sanitized: trimmed };
+      } else {
+        return { isValid: false, error: 'Invalid IP address' };
+      }
+    }
+
+    // Otherwise, validate as domain
+    const domainResult = this.validateDomain(trimmed);
+    if (domainResult.valid) {
+      return { isValid: true, type: 'domain', sanitized: domainResult.sanitized };
+    } else {
+      return { isValid: false, error: domainResult.errors.join(', ') };
+    }
+  }
 }
 
 export const inputValidator = new InputValidator();

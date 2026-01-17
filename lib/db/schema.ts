@@ -366,3 +366,84 @@ export const verificationTokens = pgTable('verification_tokens', {
 }, (table) => ({
   compoundKey: index('verification_tokens_identifier_token_idx').on(table.identifier, table.token),
 }));
+
+// Network lookups (reverse IP, ASN, etc.)
+export const networkLookups = pgTable('network_lookups', {
+  id: serial('id').primaryKey(),
+  input: varchar('input', { length: 255 }).notNull(), // Domain or IP
+  inputType: varchar('input_type', { length: 10 }).notNull(), // 'ip' or 'domain'
+  primaryIP: varchar('primary_ip', { length: 45 }).notNull(),
+
+  userId: varchar('user_id', { length: 255 }).references(() => users.id, { onDelete: 'cascade' }),
+  ipAddress: varchar('ip_address', { length: 45 }), // Client IP for anonymous lookups
+
+  // Cached results
+  reverseIPData: jsonb('reverse_ip_data'), // List of domains on same IP
+  asnData: jsonb('asn_data'), // ASN and network info
+  geolocationData: jsonb('geolocation_data'), // IP location data
+  analysis: jsonb('analysis'), // Network analysis results
+
+  totalDomains: integer('total_domains').default(0),
+  hostingProvider: varchar('hosting_provider', { length: 255 }),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at').notNull(), // Cache expiry (7 days)
+}, (table) => ({
+  inputIdx: index('network_lookups_input_idx').on(table.input),
+  primaryIPIdx: index('network_lookups_primary_ip_idx').on(table.primaryIP),
+  userIdIdx: index('network_lookups_user_id_idx').on(table.userId),
+  expiresAtIdx: index('network_lookups_expires_at_idx').on(table.expiresAt),
+}));
+
+// IP cache for reverse IP lookups
+export const ipCache = pgTable('ip_cache', {
+  id: serial('id').primaryKey(),
+  ip: varchar('ip', { length: 45 }).notNull().unique(),
+
+  // Reverse IP data
+  domains: jsonb('domains').notNull(), // Array of domain objects
+  totalDomains: integer('total_domains').default(0),
+  source: varchar('source', { length: 50 }).notNull(),
+
+  // ASN/Network data
+  asn: integer('asn'),
+  asnOrganization: varchar('asn_organization', { length: 255 }),
+  asnCountry: varchar('asn_country', { length: 2 }),
+  networkType: varchar('network_type', { length: 50 }),
+  isDatacenter: boolean('is_datacenter').default(false),
+
+  // Geolocation
+  country: varchar('country', { length: 100 }),
+  countryCode: varchar('country_code', { length: 2 }),
+  city: varchar('city', { length: 100 }),
+  latitude: varchar('latitude', { length: 20 }),
+  longitude: varchar('longitude', { length: 20 }),
+
+  cachedAt: timestamp('cached_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at').notNull(), // 7 day TTL
+}, (table) => ({
+  ipIdx: index('ip_cache_ip_idx').on(table.ip),
+  expiresAtIdx: index('ip_cache_expires_at_idx').on(table.expiresAt),
+}));
+
+// Network relationships (domain-IP-ASN mapping)
+export const networkRelationships = pgTable('network_relationships', {
+  id: serial('id').primaryKey(),
+
+  domain: varchar('domain', { length: 255 }).notNull(),
+  ip: varchar('ip', { length: 45 }).notNull(),
+  asn: integer('asn'),
+
+  hostingProvider: varchar('hosting_provider', { length: 255 }),
+  country: varchar('country', { length: 100 }),
+
+  firstSeen: timestamp('first_seen').defaultNow().notNull(),
+  lastSeen: timestamp('last_seen').defaultNow().notNull(),
+
+  isActive: boolean('is_active').default(true),
+}, (table) => ({
+  domainIdx: index('network_relationships_domain_idx').on(table.domain),
+  ipIdx: index('network_relationships_ip_idx').on(table.ip),
+  asnIdx: index('network_relationships_asn_idx').on(table.asn),
+  compoundIdx: index('network_relationships_domain_ip_idx').on(table.domain, table.ip),
+}));
