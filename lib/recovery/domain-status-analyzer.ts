@@ -211,43 +211,63 @@ export class DomainStatusAnalyzer {
     }
 
     // Active domain analysis
-    if (report.status === 'UNKNOWN' && report.isActive) {
-      // Check if parked or in use
-      if (websiteActive === false || !hasWaybackContent) {
+    // If website is online, the domain is active even without expiry date
+    if (websiteActive === true && !report.isActive) {
+      report.isActive = true;
+    }
+
+    if (report.status === 'UNKNOWN') {
+      // If domain is registered and website is active, analyze the activity type
+      if (report.isActive || websiteActive === true) {
+        // Check if parked or in use
+        if (websiteActive === false || !hasWaybackContent) {
+          report.status = 'ACTIVE_PARKED';
+          report.isParked = true;
+          report.recoveryDifficulty = 'MODERATE';
+          report.estimatedCost = { min: 1000, max: 10000, currency: 'USD' };
+          report.estimatedTimeWeeks = 4;
+          report.successRate = 60;
+          report.reasons.push('Domain is registered but appears parked/inactive');
+          report.opportunities.push('Contact owner with purchase offer');
+          report.opportunities.push('Check if domain is listed for sale on aftermarket');
+          report.opportunities.push('Contact registrar for owner information');
+        } else if (this.isForSaleIndicator(whoisData)) {
+          report.status = 'ACTIVE_FOR_SALE';
+          report.isForSale = true;
+          report.recoveryDifficulty = 'MODERATE';
+          report.estimatedCost = { min: 500, max: 50000, currency: 'USD' };
+          report.estimatedTimeWeeks = 2;
+          report.successRate = 80;
+          report.reasons.push('Domain appears to be for sale');
+          report.opportunities.push('Contact owner directly via listing');
+          report.opportunities.push('Negotiate price or use domain broker');
+          report.warnings.push('Price may be negotiable, especially for older listings');
+        } else {
+          report.status = 'ACTIVE_IN_USE';
+          report.isActive = true;
+          report.recoveryDifficulty = 'VERY_HARD';
+          report.estimatedCost = { min: 5000, max: 100000, currency: 'USD' };
+          report.estimatedTimeWeeks = 12;
+          report.successRate = 20;
+          report.reasons.push('Domain is actively used');
+          report.opportunities.push('Contact current owner with purchase offer');
+          report.opportunities.push('Use domain broker for negotiation');
+          report.opportunities.push('Consider legal options if trademark infringement');
+          report.warnings.push('Owner may not be willing to sell');
+          report.warnings.push('Price will likely be very high');
+        }
+      } else {
+        // Domain is registered but we don't have enough info about its status
+        // Default to ACTIVE_PARKED if registered
         report.status = 'ACTIVE_PARKED';
         report.isParked = true;
         report.recoveryDifficulty = 'MODERATE';
-        report.estimatedCost = { min: 1000, max: 10000, currency: 'USD' };
+        report.estimatedCost = classification.estimatedValue;
         report.estimatedTimeWeeks = 4;
         report.successRate = 60;
-        report.reasons.push('Domain is registered but appears parked/inactive');
+        report.reasons.push('Domain is registered');
         report.opportunities.push('Contact owner with purchase offer');
-        report.opportunities.push('Check if domain is listed for sale on aftermarket');
-        report.opportunities.push('Contact registrar for owner information');
-      } else if (this.isForSaleIndicator(whoisData)) {
-        report.status = 'ACTIVE_FOR_SALE';
-        report.isForSale = true;
-        report.recoveryDifficulty = 'MODERATE';
-        report.estimatedCost = { min: 500, max: 50000, currency: 'USD' };
-        report.estimatedTimeWeeks = 2;
-        report.successRate = 80;
-        report.reasons.push('Domain appears to be for sale');
-        report.opportunities.push('Contact owner directly via listing');
-        report.opportunities.push('Negotiate price or use domain broker');
-        report.warnings.push('Price may be negotiable, especially for older listings');
-      } else {
-        report.status = 'ACTIVE_IN_USE';
-        report.isActive = true;
-        report.recoveryDifficulty = 'VERY_HARD';
-        report.estimatedCost = { min: 5000, max: 100000, currency: 'USD' };
-        report.estimatedTimeWeeks = 12;
-        report.successRate = 20;
-        report.reasons.push('Domain is actively used');
-        report.opportunities.push('Contact current owner with purchase offer');
-        report.opportunities.push('Use domain broker for negotiation');
-        report.opportunities.push('Consider legal options if trademark infringement');
-        report.warnings.push('Owner may not be willing to sell');
-        report.warnings.push('Price will likely be very high');
+        report.opportunities.push('Check WHOIS for owner contact information');
       }
     }
 
