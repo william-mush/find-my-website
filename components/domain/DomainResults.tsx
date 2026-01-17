@@ -110,26 +110,27 @@ export function DomainResults({ data }: DomainResultsProps) {
       {/* Tabs */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
         <div className="border-b border-gray-200 dark:border-gray-700">
-          <nav className="flex -mb-px">
+          <nav className="flex -mb-px overflow-x-auto">
             {[
-              { id: 'overview', label: 'Overview' },
-              { id: 'dns', label: 'DNS Records' },
-              { id: 'website', label: 'Website Analysis' },
-              { id: 'security', label: 'Security' },
-              { id: 'seo', label: 'SEO & Traffic' },
-              { id: 'recovery', label: 'Recovery Guide' },
-              { id: 'history', label: 'Historical Data' },
+              { id: 'overview', label: 'Overview', icon: '📊' },
+              { id: 'dns', label: 'DNS', icon: '🌐' },
+              { id: 'website', label: 'Website', icon: '💻' },
+              { id: 'security', label: 'Security', icon: '🔒' },
+              { id: 'seo', label: 'SEO', icon: '📈' },
+              { id: 'recovery', label: 'Recovery', icon: '🔧' },
+              { id: 'history', label: 'History', icon: '📜' },
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex-1 py-4 px-6 text-center border-b-2 font-medium transition-colors \${
+                className={`flex-1 min-w-fit py-3 px-3 md:px-5 text-center border-b-3 font-semibold transition-all duration-200 flex flex-col items-center justify-center gap-1 \${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                    ? 'border-b-4 border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700/30'
                 }`}
               >
-                {tab.label}
+                <span className="text-xl">{tab.icon}</span>
+                <span className="text-xs font-medium">{tab.label}</span>
               </button>
             ))}
           </nav>
