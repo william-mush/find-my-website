@@ -220,7 +220,8 @@ export class DomainStatusAnalyzer {
       // If domain is registered and website is active, analyze the activity type
       if (report.isActive || websiteActive === true) {
         // Check if parked or in use
-        if (websiteActive === false || !hasWaybackContent) {
+        // Domain is parked if website is offline AND there's no historical content
+        if (websiteActive === false && !hasWaybackContent) {
           report.status = 'ACTIVE_PARKED';
           report.isParked = true;
           report.recoveryDifficulty = 'MODERATE';
