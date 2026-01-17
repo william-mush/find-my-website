@@ -3,6 +3,8 @@
  * Analyzes domain authority, backlinks, and traffic estimates
  */
 
+import { domainClassifier } from '../intelligence/domain-classifier';
+
 export interface SEOAnalysis {
   domain: string;
 
@@ -73,10 +75,22 @@ export class SEOAPI {
 
     const archivedPages = waybackData?.totalSnapshots || 0;
     const domainAge = this.calculateDomainAge(whoisData);
-    const domainAuthority = this.calculateDomainAuthority(domainAge, archivedPages);
+
+    // Get intelligent classification
+    const classification = domainClassifier.classify(cleanDomain, domainAge);
+
+    // Use smarter scoring for major brands
+    const domainAuthority = classification.isMajorBrand
+      ? { score: 100, calculation: 'Major global brand - maximum authority' }
+      : this.calculateDomainAuthority(domainAge, archivedPages);
+
     const contentAnalysis = this.analyzeContent(waybackData);
-    const backlinks = this.estimateBacklinks(archivedPages, domainAge);
-    const seoHealth = this.calculateSEOHealth(domainAge, archivedPages);
+    const backlinks = classification.isMajorBrand
+      ? { estimatedTotal: 10000000, fromWayback: archivedPages, quality: 'HIGH' as const }
+      : this.estimateBacklinks(archivedPages, domainAge);
+    const seoHealth = classification.isMajorBrand
+      ? { score: 100, issues: [], recommendations: ['Domain has maximum SEO authority'] }
+      : this.calculateSEOHealth(domainAge, archivedPages);
 
     return {
       domain: cleanDomain,

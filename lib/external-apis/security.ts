@@ -3,6 +3,8 @@
  * Checks domain safety, blacklists, and trust scores
  */
 
+import { domainClassifier } from '../intelligence/domain-classifier';
+
 export interface SecurityAnalysis {
   domain: string;
 
@@ -75,7 +77,19 @@ export class SecurityAPI {
     const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
     const domainAge = this.calculateDomainAge(whoisData);
-    const reputation = this.calculateReputation(domainAge, whoisData);
+
+    // Get intelligent classification
+    const classification = domainClassifier.classify(cleanDomain, domainAge.ageInYears);
+
+    // Use smarter reputation scoring for major brands
+    const reputation = classification.isMajorBrand
+      ? {
+          trustScore: 100,
+          ageScore: 100,
+          riskLevel: 'LOW' as const,
+          reasons: ['Verified major global brand', 'Maximum trust and security rating'],
+        }
+      : this.calculateReputation(domainAge, whoisData);
 
     // In production, you'd integrate with:
     // - Google Safe Browsing API

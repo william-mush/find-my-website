@@ -4,6 +4,7 @@
  */
 
 import { WhoisData } from '../external-apis/whois';
+import { domainClassifier, DomainClassification } from '../intelligence/domain-classifier';
 
 export type DomainStatus =
   | 'ACTIVE_IN_USE'
@@ -25,6 +26,8 @@ export interface DomainStatusReport {
   isActive: boolean;
   isParked: boolean;
   isForSale: boolean;
+
+  classification?: DomainClassification;
 
   recoveryDifficulty: RecoveryDifficulty;
   estimatedCost: {
@@ -58,9 +61,16 @@ export class DomainStatusAnalyzer {
   async analyze(
     domain: string,
     whoisData?: WhoisData,
-    dnsActive?: boolean,
+    hasWaybackContent?: boolean,
     websiteActive?: boolean
   ): Promise<DomainStatusReport> {
+    // Get intelligent classification
+    const domainAge = whoisData?.createdDate
+      ? (Date.now() - new Date(whoisData.createdDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25)
+      : undefined;
+
+    const classification = domainClassifier.classify(domain, domainAge);
+
     const report: DomainStatusReport = {
       domain,
       status: 'UNKNOWN',
@@ -68,8 +78,9 @@ export class DomainStatusAnalyzer {
       isActive: false,
       isParked: false,
       isForSale: false,
+      classification,
       recoveryDifficulty: 'MODERATE',
-      estimatedCost: { min: 0, max: 0, currency: 'USD' },
+      estimatedCost: classification.estimatedValue,
       estimatedTimeWeeks: 0,
       successRate: 50,
       reasons: [],
@@ -98,6 +109,30 @@ export class DomainStatusAnalyzer {
         email: whoisData.registrarAbuseEmail,
         phone: whoisData.registrarAbusePhone,
       };
+    }
+
+    // Special handling for major brands
+    if (classification.isMajorBrand) {
+      report.status = 'ACTIVE_IN_USE';
+      report.isActive = true;
+      report.recoveryDifficulty = 'IMPOSSIBLE';
+      report.successRate = 0;
+      report.estimatedTimeWeeks = 0;
+      report.reasons = [
+        ...classification.reasons,
+        'Domain is owned and actively used by the brand',
+      ];
+      report.warnings = [
+        'This domain cannot be acquired through normal means',
+        'Domain is protected by trademark law and extensive legal resources',
+        'Any attempt to register similar domains may result in legal action',
+      ];
+      report.opportunities = [
+        'This domain is not available for recovery',
+        'Consider alternative domain names or variations',
+        'Explore official partnership opportunities with the company',
+      ];
+      return report;
     }
 
     // Check expiry status
@@ -167,7 +202,7 @@ export class DomainStatusAnalyzer {
     // Active domain analysis
     if (report.status === 'UNKNOWN' && report.isActive) {
       // Check if parked or in use
-      if (websiteActive === false || dnsActive === false) {
+      if (websiteActive === false || !hasWaybackContent) {
         report.status = 'ACTIVE_PARKED';
         report.isParked = true;
         report.recoveryDifficulty = 'MODERATE';
