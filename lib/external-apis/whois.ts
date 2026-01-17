@@ -93,6 +93,18 @@ export class WhoisAPI {
       // Return minimal data instead of throwing
       return {
         domain,
+        privacy: {
+          isPrivate: false,
+        },
+        locks: {
+          transferLocked: false,
+          updateLocked: false,
+          deleteLocked: false,
+        },
+        transferInfo: {
+          isEligible: false,
+          authCodeRequired: true,
+        },
         rawData: 'WHOIS lookup unavailable',
       };
     }
@@ -138,6 +150,18 @@ export class WhoisAPI {
       // Return basic data
       return {
         domain,
+        privacy: {
+          isPrivate: false,
+        },
+        locks: {
+          transferLocked: false,
+          updateLocked: false,
+          deleteLocked: false,
+        },
+        transferInfo: {
+          isEligible: false,
+          authCodeRequired: true,
+        },
         rawData: 'WHOIS data temporarily unavailable',
       };
     }
@@ -150,6 +174,8 @@ export class WhoisAPI {
     const whoisRecord = data.WhoisRecord || {};
     const registryData = whoisRecord.registryData || {};
     const registrant = whoisRecord.registrant || {};
+
+    const statuses = whoisRecord.status || [];
 
     return {
       domain,
@@ -166,7 +192,25 @@ export class WhoisAPI {
         country: registrant.country,
       },
       nameservers: whoisRecord.nameServers?.hostNames || [],
-      status: whoisRecord.status || [],
+      status: statuses,
+      privacy: {
+        isPrivate: registrant.name?.toUpperCase().includes('REDACTED') || false,
+      },
+      locks: {
+        transferLocked: statuses.some((s: string) =>
+          s.toLowerCase().includes('transferprohibited')
+        ),
+        updateLocked: statuses.some((s: string) =>
+          s.toLowerCase().includes('updateprohibited')
+        ),
+        deleteLocked: statuses.some((s: string) =>
+          s.toLowerCase().includes('deleteprohibited')
+        ),
+      },
+      transferInfo: {
+        isEligible: true,
+        authCodeRequired: true,
+      },
       rawData: JSON.stringify(data, null, 2),
     };
   }
