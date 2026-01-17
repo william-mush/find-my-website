@@ -1,12 +1,7 @@
 /**
  * WHOIS Lookup Integration
- * Fetches domain registration information
+ * Fetches domain registration information using HTTP API (Vercel-compatible)
  */
-
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
 
 export interface WhoisData {
   domain: string;
@@ -35,116 +30,156 @@ export interface WhoisData {
 }
 
 export class WhoisAPI {
+  private apiUrl: string;
+
+  constructor() {
+    // Use whois.whoisxmlapi.com free tier (1000 requests/month)
+    // Or fallback to jsonwhois.com
+    this.apiUrl = 'https://www.whoisxmlapi.com/whoisserver/WhoisService';
+  }
+
   /**
-   * Perform WHOIS lookup using system whois command
+   * Perform WHOIS lookup using HTTP API
    */
   async lookup(domain: string): Promise<WhoisData> {
     try {
-      const { stdout } = await execAsync(`whois ${domain}`);
-      return this.parseWhoisData(domain, stdout);
+      // Try primary API first (WhoisXML API)
+      if (process.env.WHOISXML_API_KEY) {
+        return await this.lookupWithWhoisXML(domain);
+      }
+
+      // Fallback to free API
+      return await this.lookupWithFreeAPI(domain);
     } catch (error) {
       console.error('WHOIS lookup failed:', error);
-      throw new Error(`WHOIS lookup failed for ${domain}`);
+
+      // Return minimal data instead of throwing
+      return {
+        domain,
+        rawData: 'WHOIS lookup unavailable',
+      };
     }
   }
 
   /**
-   * Parse raw WHOIS data
+   * Lookup using WhoisXML API (paid, reliable)
    */
-  private parseWhoisData(domain: string, rawData: string): WhoisData {
-    const data: WhoisData = {
-      domain,
-      rawData,
-    };
+  private async lookupWithWhoisXML(domain: string): Promise<WhoisData> {
+    const url = `${this.apiUrl}?apiKey=${process.env.WHOISXML_API_KEY}&domainName=${domain}&outputFormat=JSON`;
 
-    const lines = rawData.split('\n');
-
-    for (const line of lines) {
-      const [key, ...valueParts] = line.split(':');
-      const value = valueParts.join(':').trim();
-
-      if (!key || !value) continue;
-
-      const lowerKey = key.trim().toLowerCase();
-
-      // Registrar info
-      if (lowerKey.includes('registrar') && !lowerKey.includes('abuse')) {
-        if (lowerKey === 'registrar') {
-          data.registrar = value;
-        } else if (lowerKey.includes('url') || lowerKey.includes('website')) {
-          data.registrarUrl = value;
-        }
-      }
-
-      // Abuse contacts
-      if (lowerKey.includes('abuse')) {
-        if (lowerKey.includes('email')) {
-          data.registrarAbuseEmail = value;
-        } else if (lowerKey.includes('phone')) {
-          data.registrarAbusePhone = value;
-        }
-      }
-
-      // Dates
-      if (lowerKey.includes('creation date') || lowerKey.includes('created')) {
-        data.createdDate = this.parseDate(value);
-      }
-      if (lowerKey.includes('updated date') || lowerKey.includes('last updated')) {
-        data.updatedDate = this.parseDate(value);
-      }
-      if (
-        lowerKey.includes('expir') ||
-        lowerKey.includes('registry expiry date')
-      ) {
-        data.expiryDate = this.parseDate(value);
-      }
-
-      // Nameservers
-      if (lowerKey.includes('name server')) {
-        if (!data.nameservers) data.nameservers = [];
-        data.nameservers.push(value.toLowerCase());
-      }
-
-      // Status
-      if (lowerKey.includes('domain status') || lowerKey.includes('status')) {
-        if (!data.status) data.status = [];
-        data.status.push(value);
-      }
-
-      // Registrant info
-      if (lowerKey.includes('registrant')) {
-        if (!data.registrant) data.registrant = {};
-
-        if (lowerKey.includes('name')) {
-          data.registrant.name = value;
-        } else if (lowerKey.includes('organization')) {
-          data.registrant.organization = value;
-        } else if (lowerKey.includes('email')) {
-          data.registrant.email = value;
-        } else if (lowerKey.includes('phone')) {
-          data.registrant.phone = value;
-        } else if (lowerKey.includes('country')) {
-          data.registrant.country = value;
-        }
-      }
-
-      // DNSSEC
-      if (lowerKey.includes('dnssec')) {
-        data.dnssec = value;
-      }
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`WhoisXML API error: ${response.statusText}`);
     }
 
-    return data;
+    const data = await response.json();
+    return this.parseWhoisXMLResponse(domain, data);
+  }
+
+  /**
+   * Lookup using free API (jsonwhois.com)
+   */
+  private async lookupWithFreeAPI(domain: string): Promise<WhoisData> {
+    try {
+      // Use rdap.org (free, reliable alternative)
+      const rdapUrl = `https://rdap.org/domain/${domain}`;
+      const response = await fetch(rdapUrl, {
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`RDAP API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return this.parseRDAPResponse(domain, data);
+    } catch (error) {
+      console.error('Free WHOIS lookup failed:', error);
+
+      // Return basic data
+      return {
+        domain,
+        rawData: 'WHOIS data temporarily unavailable',
+      };
+    }
+  }
+
+  /**
+   * Parse WhoisXML API response
+   */
+  private parseWhoisXMLResponse(domain: string, data: any): WhoisData {
+    const whoisRecord = data.WhoisRecord || {};
+    const registryData = whoisRecord.registryData || {};
+    const registrant = whoisRecord.registrant || {};
+
+    return {
+      domain,
+      registrar: whoisRecord.registrarName,
+      registrarUrl: whoisRecord.registrarUrl,
+      createdDate: this.parseDate(whoisRecord.createdDate),
+      updatedDate: this.parseDate(whoisRecord.updatedDate),
+      expiryDate: this.parseDate(whoisRecord.expiresDate),
+      registrant: {
+        name: registrant.name,
+        organization: registrant.organization,
+        email: registrant.email,
+        phone: registrant.telephone,
+        country: registrant.country,
+      },
+      nameservers: whoisRecord.nameServers?.hostNames || [],
+      status: whoisRecord.status || [],
+      rawData: JSON.stringify(data, null, 2),
+    };
+  }
+
+  /**
+   * Parse RDAP response (free API)
+   */
+  private parseRDAPResponse(domain: string, data: any): WhoisData {
+    const events = data.events || [];
+    const entities = data.entities || [];
+
+    // Find registrar
+    const registrarEntity = entities.find((e: any) =>
+      e.roles?.includes('registrar')
+    );
+
+    // Find important dates
+    const createdEvent = events.find((e: any) => e.eventAction === 'registration');
+    const updatedEvent = events.find((e: any) => e.eventAction === 'last changed');
+    const expiryEvent = events.find((e: any) => e.eventAction === 'expiration');
+
+    // Find registrant
+    const registrantEntity = entities.find((e: any) =>
+      e.roles?.includes('registrant')
+    );
+
+    return {
+      domain,
+      registrar: registrarEntity?.vcardArray?.[1]?.find((v: any) => v[0] === 'fn')?.[3],
+      createdDate: createdEvent ? new Date(createdEvent.eventDate) : undefined,
+      updatedDate: updatedEvent ? new Date(updatedEvent.eventDate) : undefined,
+      expiryDate: expiryEvent ? new Date(expiryEvent.eventDate) : undefined,
+      registrant: registrantEntity ? {
+        name: registrantEntity.vcardArray?.[1]?.find((v: any) => v[0] === 'fn')?.[3],
+        organization: registrantEntity.vcardArray?.[1]?.find((v: any) => v[0] === 'org')?.[3],
+      } : undefined,
+      nameservers: data.nameservers?.map((ns: any) => ns.ldhName) || [],
+      status: data.status || [],
+      rawData: JSON.stringify(data, null, 2),
+    };
   }
 
   /**
    * Parse date from WHOIS data
    */
-  private parseDate(dateStr: string): Date | undefined {
+  private parseDate(dateStr: string | undefined): Date | undefined {
+    if (!dateStr) return undefined;
+
     try {
-      // Remove any trailing information like "(YYYY-MM-DD)"
-      const cleaned = dateStr.split('(')[0].trim();
-      const date = new Date(cleaned);
+      const date = new Date(dateStr);
       return isNaN(date.getTime()) ? undefined : date;
     } catch {
       return undefined;
