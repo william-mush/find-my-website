@@ -250,7 +250,7 @@ export class WaybackMachineAPI {
       (Date.now() - bestSnapshot.date.getTime()) < 365 * 24 * 60 * 60 * 1000; // < 1 year
 
     return {
-      available: availability.available,
+      available: hasContent, // Use hasContent instead of availability check
       hasContent,
       isComplete,
       isRecent,

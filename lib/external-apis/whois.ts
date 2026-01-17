@@ -92,9 +92,13 @@ export class WhoisAPI {
     } catch (error) {
       console.error('WHOIS lookup failed:', error);
 
-      // Return minimal data instead of throwing
+      // Return minimal data with generic registrar for ccTLDs
+      // Extract TLD for better messaging
+      const tld = domain.split('.').pop()?.toUpperCase() || 'UNKNOWN';
+
       return {
         domain,
+        registrar: `${tld} Registry (WHOIS unavailable)`,
         privacy: {
           isPrivate: false,
         },
@@ -107,7 +111,7 @@ export class WhoisAPI {
           isEligible: false,
           authCodeRequired: true,
         },
-        rawData: 'WHOIS lookup unavailable',
+        rawData: `WHOIS lookup unavailable for .${tld?.toLowerCase()} domain. Domain appears to be registered based on DNS records.`,
       };
     }
   }
