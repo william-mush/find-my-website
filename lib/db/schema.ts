@@ -311,3 +311,58 @@ export const ipAbuse = pgTable('ip_abuse', {
   blockedIdx: index('ip_abuse_blocked_idx').on(table.isBlocked),
   lastSeenIdx: index('ip_abuse_last_seen_idx').on(table.lastSeen),
 }));
+
+// ============================================================================
+// AUTHENTICATION TABLES (NextAuth.js compatible)
+// ============================================================================
+
+// Users table
+export const users = pgTable('users', {
+  id: varchar('id', { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: varchar('name', { length: 255 }),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  emailVerified: timestamp('email_verified'),
+  image: text('image'),
+  password: varchar('password', { length: 255 }), // Hashed password for email/password auth
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  emailIdx: index('users_email_idx').on(table.email),
+}));
+
+// OAuth accounts (Google, GitHub, etc.)
+export const accounts = pgTable('accounts', {
+  id: varchar('id', { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: varchar('user_id', { length: 255 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  type: varchar('type', { length: 255 }).notNull(), // 'oauth' | 'credentials'
+  provider: varchar('provider', { length: 255 }).notNull(), // 'google', 'github', 'credentials'
+  providerAccountId: varchar('provider_account_id', { length: 255 }).notNull(),
+  refresh_token: text('refresh_token'),
+  access_token: text('access_token'),
+  expires_at: integer('expires_at'),
+  token_type: varchar('token_type', { length: 255 }),
+  scope: varchar('scope', { length: 255 }),
+  id_token: text('id_token'),
+  session_state: varchar('session_state', { length: 255 }),
+}, (table) => ({
+  userIdIdx: index('accounts_user_id_idx').on(table.userId),
+  providerAccountIdx: index('accounts_provider_account_idx').on(table.provider, table.providerAccountId),
+}));
+
+// Sessions table
+export const sessions = pgTable('sessions', {
+  sessionToken: varchar('session_token', { length: 255 }).primaryKey(),
+  userId: varchar('user_id', { length: 255 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  expires: timestamp('expires').notNull(),
+}, (table) => ({
+  userIdIdx: index('sessions_user_id_idx').on(table.userId),
+}));
+
+// Verification tokens (for email verification)
+export const verificationTokens = pgTable('verification_tokens', {
+  identifier: varchar('identifier', { length: 255 }).notNull(),
+  token: varchar('token', { length: 255 }).notNull(),
+  expires: timestamp('expires').notNull(),
+}, (table) => ({
+  compoundKey: index('verification_tokens_identifier_token_idx').on(table.identifier, table.token),
+}));
