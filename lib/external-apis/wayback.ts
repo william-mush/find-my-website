@@ -119,7 +119,7 @@ export class WaybackMachineAPI {
       const response = await fetchWithTimeout(
         `${this.cdxUrl}?${params.toString()}`,
         {},
-        3000 // 3s timeout for CDX API
+        8000 // 8s timeout for CDX API (can be slow for large archives)
       );
 
       if (!response.ok) {
