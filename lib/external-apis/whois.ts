@@ -9,6 +9,7 @@ export interface WhoisData {
   registrarUrl?: string;
   registrarAbuseEmail?: string;
   registrarAbusePhone?: string;
+  registrarIANAId?: string;
 
   createdDate?: Date;
   updatedDate?: Date;
@@ -20,12 +21,48 @@ export interface WhoisData {
     email?: string;
     phone?: string;
     country?: string;
+    state?: string;
+    city?: string;
+    address?: string;
+    postalCode?: string;
+  };
+
+  admin?: {
+    name?: string;
+    organization?: string;
+    email?: string;
+    phone?: string;
+  };
+
+  tech?: {
+    name?: string;
+    organization?: string;
+    email?: string;
+    phone?: string;
   };
 
   nameservers?: string[];
   status?: string[];
 
+  privacy: {
+    isPrivate: boolean;
+    proxyService?: string;
+  };
+
   dnssec?: string;
+
+  locks: {
+    transferLocked: boolean;
+    updateLocked: boolean;
+    deleteLocked: boolean;
+  };
+
+  transferInfo: {
+    isEligible: boolean;
+    daysUntilEligible?: number;
+    authCodeRequired: boolean;
+  };
+
   rawData?: string;
 }
 
@@ -156,6 +193,68 @@ export class WhoisAPI {
       e.roles?.includes('registrant')
     );
 
+    // Find admin contact
+    const adminEntity = entities.find((e: any) =>
+      e.roles?.includes('administrative')
+    );
+
+    // Find tech contact
+    const techEntity = entities.find((e: any) =>
+      e.roles?.includes('technical')
+    );
+
+    // Parse vCard data
+    const parseVCard = (entity: any) => {
+      if (!entity?.vcardArray?.[1]) return {};
+
+      const vcard = entity.vcardArray[1];
+      return {
+        name: vcard.find((v: any) => v[0] === 'fn')?.[3],
+        organization: vcard.find((v: any) => v[0] === 'org')?.[3],
+        email: vcard.find((v: any) => v[0] === 'email')?.[3],
+        phone: vcard.find((v: any) => v[0] === 'tel')?.[3],
+        address: vcard.find((v: any) => v[0] === 'adr')?.[3],
+      };
+    };
+
+    const registrantData = parseVCard(registrantEntity);
+    const adminData = parseVCard(adminEntity);
+    const techData = parseVCard(techEntity);
+
+    // Check for privacy/proxy
+    const registrantName = registrantData.name?.toUpperCase() || '';
+    const isPrivate = registrantName.includes('REDACTED') ||
+                      registrantName.includes('PRIVACY') ||
+                      registrantName.includes('PROXY') ||
+                      registrantName.includes('WHOISGUARD');
+
+    // Check domain locks
+    const statuses = data.status || [];
+    const locks = {
+      transferLocked: statuses.some((s: string) =>
+        s.toLowerCase().includes('clienttransferprohibited') ||
+        s.toLowerCase().includes('servertransferprohibited')
+      ),
+      updateLocked: statuses.some((s: string) =>
+        s.toLowerCase().includes('clientupdateprohibited')
+      ),
+      deleteLocked: statuses.some((s: string) =>
+        s.toLowerCase().includes('clientdeleteprohibited')
+      ),
+    };
+
+    // Calculate transfer eligibility
+    const createdDate = createdEvent ? new Date(createdEvent.eventDate) : undefined;
+    const daysSinceCreation = createdDate
+      ? Math.floor((Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
+
+    const transferInfo = {
+      isEligible: !locks.transferLocked && daysSinceCreation >= 60,
+      daysUntilEligible: daysSinceCreation < 60 ? 60 - daysSinceCreation : 0,
+      authCodeRequired: true,
+    };
+
     return {
       domain,
       registrar: registrarEntity?.vcardArray?.[1]?.find((v: any) => v[0] === 'fn')?.[3],
@@ -163,11 +262,31 @@ export class WhoisAPI {
       updatedDate: updatedEvent ? new Date(updatedEvent.eventDate) : undefined,
       expiryDate: expiryEvent ? new Date(expiryEvent.eventDate) : undefined,
       registrant: registrantEntity ? {
-        name: registrantEntity.vcardArray?.[1]?.find((v: any) => v[0] === 'fn')?.[3],
-        organization: registrantEntity.vcardArray?.[1]?.find((v: any) => v[0] === 'org')?.[3],
+        name: registrantData.name,
+        organization: registrantData.organization,
+        email: registrantData.email,
+        phone: registrantData.phone,
+      } : undefined,
+      admin: adminEntity ? {
+        name: adminData.name,
+        organization: adminData.organization,
+        email: adminData.email,
+        phone: adminData.phone,
+      } : undefined,
+      tech: techEntity ? {
+        name: techData.name,
+        organization: techData.organization,
+        email: techData.email,
+        phone: techData.phone,
       } : undefined,
       nameservers: data.nameservers?.map((ns: any) => ns.ldhName) || [],
-      status: data.status || [],
+      status: statuses,
+      privacy: {
+        isPrivate,
+        proxyService: isPrivate ? registrantData.organization : undefined,
+      },
+      locks,
+      transferInfo,
       rawData: JSON.stringify(data, null, 2),
     };
   }
