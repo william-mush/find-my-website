@@ -7,6 +7,9 @@ import { securityAPI } from '@/lib/external-apis/security';
 import { seoAPI } from '@/lib/external-apis/seo';
 import { domainStatusAnalyzer } from '@/lib/recovery/domain-status-analyzer';
 import { withTimeout } from '@/lib/utils/fetch-with-timeout';
+import { rateLimiter, getClientIP } from '@/lib/security/rate-limiter';
+import { inputValidator } from '@/lib/security/input-validator';
+import { usageTracker } from '@/lib/security/usage-tracker';
 
 // Vercel serverless timeout is 10s on free tier
 // We need to complete analysis in under 8s to be safe
@@ -14,19 +17,149 @@ export const maxDuration = 10;
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
+  const clientIP = getClientIP(request);
+  const userAgent = request.headers.get('user-agent') || undefined;
+  const referer = request.headers.get('referer') || undefined;
+
+  let domain: string | undefined;
+  let statusCode = 200;
+  let wasBlocked = false;
+  let wasRateLimited = false;
+  let wasInvalidInput = false;
+  let rateLimitRemaining = 10;
 
   try {
-    const { domain } = await request.json();
+    // 1. Check IP-based blocking (database level)
+    const ipStats = await usageTracker.getIPStats(clientIP);
+    if (ipStats?.isBlocked && ipStats.blockedUntil && new Date() < ipStats.blockedUntil) {
+      statusCode = 429;
+      wasBlocked = true;
+
+      // Track this blocked request
+      usageTracker.trackRequest({
+        ipAddress: clientIP,
+        endpoint: '/api/domain/analyze',
+        method: 'POST',
+        userAgent,
+        referer,
+        statusCode,
+        responseTime: Date.now() - startTime,
+        rateLimitRemaining: 0,
+        wasBlocked: true,
+      });
+
+      return NextResponse.json(
+        {
+          error: 'IP blocked',
+          message: ipStats.blockReason || 'Your IP has been blocked due to abuse.',
+          blockedUntil: ipStats.blockedUntil.toISOString(),
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': Math.ceil((ipStats.blockedUntil.getTime() - Date.now()) / 1000).toString(),
+          },
+        }
+      );
+    }
+
+    // 2. Rate Limiting Check (Redis)
+    const rateLimitResult = await rateLimiter.checkLimit(clientIP, 10, 60);
+    rateLimitRemaining = rateLimitResult.remaining;
+
+    if (!rateLimitResult.success) {
+      statusCode = 429;
+      wasRateLimited = true;
+
+      // Track rate limit violation
+      usageTracker.trackRequest({
+        ipAddress: clientIP,
+        endpoint: '/api/domain/analyze',
+        method: 'POST',
+        userAgent,
+        referer,
+        statusCode,
+        responseTime: Date.now() - startTime,
+        rateLimitRemaining: 0,
+        wasRateLimited: true,
+      });
+
+      const headers = {
+        'X-RateLimit-Limit': rateLimitResult.limit.toString(),
+        'X-RateLimit-Remaining': '0',
+        'X-RateLimit-Reset': new Date(rateLimitResult.reset).toISOString(),
+        'Retry-After': rateLimitResult.retryAfter?.toString() || '60',
+      };
+
+      return NextResponse.json(
+        {
+          error: 'Rate limit exceeded',
+          message: `Too many requests. Please try again in ${rateLimitResult.retryAfter} seconds.`,
+          limit: rateLimitResult.limit,
+          reset: new Date(rateLimitResult.reset).toISOString(),
+        },
+        { status: 429, headers }
+      );
+    }
+
+    // 3. Input Validation
+    const body = await request.json();
+    domain = body.domain;
 
     if (!domain) {
+      statusCode = 400;
+
+      // Track invalid request
+      usageTracker.trackRequest({
+        ipAddress: clientIP,
+        endpoint: '/api/domain/analyze',
+        method: 'POST',
+        userAgent,
+        referer,
+        statusCode,
+        responseTime: Date.now() - startTime,
+        rateLimitRemaining,
+      });
+
       return NextResponse.json(
         { error: 'Domain is required' },
         { status: 400 }
       );
     }
 
-    // Clean domain input
-    const cleanDomain = domain.toLowerCase().trim().replace(/^(https?:\/\/)?(www\.)?/, '');
+    // Validate and sanitize domain input
+    const validationResult = inputValidator.validateDomain(domain);
+
+    if (!validationResult.valid) {
+      statusCode = 400;
+      wasInvalidInput = true;
+
+      // Track invalid input attempt
+      usageTracker.trackRequest({
+        ipAddress: clientIP,
+        endpoint: '/api/domain/analyze',
+        domain: domain.substring(0, 255),
+        method: 'POST',
+        userAgent,
+        referer,
+        statusCode,
+        responseTime: Date.now() - startTime,
+        rateLimitRemaining,
+        wasInvalidInput: true,
+      });
+
+      return NextResponse.json(
+        {
+          error: 'Invalid domain',
+          message: validationResult.errors.join(', '),
+          providedInput: domain.substring(0, 50),
+        },
+        { status: 400 }
+      );
+    }
+
+    const cleanDomain = validationResult.sanitized;
+    domain = cleanDomain; // Update for tracking
 
     console.log(`[Analysis] Starting comprehensive analysis for: ${cleanDomain}`);
 
@@ -80,7 +213,26 @@ export async function POST(request: NextRequest) {
     const totalTime = Date.now() - startTime;
     console.log(`[Analysis] Complete (${totalTime}ms): Security: ${securityData ? 'OK' : 'FAIL'}, SEO: ${seoData ? 'OK' : 'FAIL'}, Status: ${statusReport ? 'OK' : 'FAIL'}`);
 
-    // Build comprehensive response
+    // Track successful request
+    usageTracker.trackRequest({
+      ipAddress: clientIP,
+      endpoint: '/api/domain/analyze',
+      domain: cleanDomain,
+      method: 'POST',
+      userAgent,
+      referer,
+      statusCode: 200,
+      responseTime: totalTime,
+      rateLimitRemaining: rateLimitResult.remaining,
+    });
+
+    // Build comprehensive response with rate limit headers
+    const headers = {
+      'X-RateLimit-Limit': rateLimitResult.limit.toString(),
+      'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+      'X-RateLimit-Reset': new Date(rateLimitResult.reset).toISOString(),
+    };
+
     return NextResponse.json({
       domain: cleanDomain,
 
@@ -160,9 +312,24 @@ export async function POST(request: NextRequest) {
       // Metadata
       analyzedAt: new Date().toISOString(),
       analysisVersion: '2.0',
-    });
+    }, { headers });
   } catch (error: any) {
     console.error('Domain analysis failed:', error);
+    statusCode = 500;
+
+    // Track error
+    usageTracker.trackRequest({
+      ipAddress: clientIP,
+      endpoint: '/api/domain/analyze',
+      domain,
+      method: 'POST',
+      userAgent,
+      referer,
+      statusCode,
+      responseTime: Date.now() - startTime,
+      rateLimitRemaining,
+    });
+
     return NextResponse.json(
       { error: 'Analysis failed', message: error.message },
       { status: 500 }

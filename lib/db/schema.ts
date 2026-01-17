@@ -248,3 +248,66 @@ export const generatedScripts = pgTable('generated_scripts', {
   domainIdx: index('scripts_domain_idx').on(table.domain),
   userIdx: index('scripts_user_idx').on(table.userId),
 }));
+
+// API usage tracking (for analytics and abuse detection)
+export const apiUsage = pgTable('api_usage', {
+  id: serial('id').primaryKey(),
+  ipAddress: varchar('ip_address', { length: 45 }).notNull(),
+  endpoint: varchar('endpoint', { length: 255 }).notNull(),
+  domain: varchar('domain', { length: 255 }),
+
+  // Request details
+  method: varchar('method', { length: 10 }).notNull(),
+  userAgent: text('user_agent'),
+  referer: text('referer'),
+
+  // Response details
+  statusCode: integer('status_code').notNull(),
+  responseTime: integer('response_time'), // milliseconds
+  rateLimitRemaining: integer('rate_limit_remaining'),
+
+  // Flags
+  wasBlocked: boolean('was_blocked').default(false),
+  wasRateLimited: boolean('was_rate_limited').default(false),
+  wasInvalidInput: boolean('was_invalid_input').default(false),
+
+  // Timestamps
+  requestedAt: timestamp('requested_at').defaultNow().notNull(),
+}, (table) => ({
+  ipIdx: index('api_usage_ip_idx').on(table.ipAddress),
+  endpointIdx: index('api_usage_endpoint_idx').on(table.endpoint),
+  requestedAtIdx: index('api_usage_requested_at_idx').on(table.requestedAt),
+  blockedIdx: index('api_usage_blocked_idx').on(table.wasBlocked),
+}));
+
+// IP abuse tracking (for automatic blocking)
+export const ipAbuse = pgTable('ip_abuse', {
+  id: serial('id').primaryKey(),
+  ipAddress: varchar('ip_address', { length: 45 }).notNull().unique(),
+
+  // Abuse metrics
+  totalRequests: integer('total_requests').default(0).notNull(),
+  rateLimitViolations: integer('rate_limit_violations').default(0).notNull(),
+  invalidInputAttempts: integer('invalid_input_attempts').default(0).notNull(),
+  suspiciousPatterns: integer('suspicious_patterns').default(0).notNull(),
+
+  // Blocking status
+  isBlocked: boolean('is_blocked').default(false),
+  blockReason: varchar('block_reason', { length: 255 }),
+  blockedAt: timestamp('blocked_at'),
+  blockedUntil: timestamp('blocked_until'),
+  autoBlockCount: integer('auto_block_count').default(0),
+
+  // Tracking
+  firstSeen: timestamp('first_seen').defaultNow().notNull(),
+  lastSeen: timestamp('last_seen').defaultNow().notNull(),
+  lastViolation: timestamp('last_violation'),
+
+  // Notes
+  userAgent: text('user_agent'),
+  notes: text('notes'),
+}, (table) => ({
+  ipIdx: index('ip_abuse_ip_idx').on(table.ipAddress),
+  blockedIdx: index('ip_abuse_blocked_idx').on(table.isBlocked),
+  lastSeenIdx: index('ip_abuse_last_seen_idx').on(table.lastSeen),
+}));
