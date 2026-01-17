@@ -73,12 +73,12 @@ export function DomainResults({ data }: DomainResultsProps) {
             <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
               {domain}
             </h2>
-            <span className={\`inline-block px-3 py-1 rounded-full text-sm font-medium \${getStatusColor(statusReport.status)}\`}>
+            <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium \${getStatusColor(statusReport.status)}`}>
               {statusReport.status.replace(/_/g, ' ')}
             </span>
           </div>
           <div className="text-right">
-            <div className={\`text-2xl font-bold \${getDifficultyColor(statusReport.recoveryDifficulty)}\`}>
+            <div className={`text-2xl font-bold \${getDifficultyColor(statusReport.recoveryDifficulty)}`}>
               {statusReport.recoveryDifficulty}
             </div>
             <div className="text-sm text-gray-500 dark:text-gray-400">Recovery Difficulty</div>
@@ -119,11 +119,11 @@ export function DomainResults({ data }: DomainResultsProps) {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={\`flex-1 py-4 px-6 text-center border-b-2 font-medium transition-colors \${
+                className={`flex-1 py-4 px-6 text-center border-b-2 font-medium transition-colors \${
                   activeTab === tab.id
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-                }\`}
+                }`}
               >
                 {tab.label}
               </button>
