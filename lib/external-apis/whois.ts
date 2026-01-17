@@ -4,6 +4,7 @@
  */
 
 import { fetchWithTimeout } from '@/lib/utils/fetch-with-timeout';
+import { cacheService, CacheTTL, CacheNamespace } from '@/lib/cache/cache-service';
 
 export interface WhoisData {
   domain: string;
@@ -78,42 +79,49 @@ export class WhoisAPI {
   }
 
   /**
-   * Perform WHOIS lookup using HTTP API
+   * Perform WHOIS lookup using HTTP API (with caching)
    */
   async lookup(domain: string): Promise<WhoisData> {
-    try {
-      // Try primary API first (WhoisXML API)
-      if (process.env.WHOISXML_API_KEY) {
-        return await this.lookupWithWhoisXML(domain);
-      }
+    // Try cache first
+    return await cacheService.getOrSet(
+      domain,
+      async () => {
+        try {
+          // Try primary API first (WhoisXML API)
+          if (process.env.WHOISXML_API_KEY) {
+            return await this.lookupWithWhoisXML(domain);
+          }
 
-      // Fallback to free API
-      return await this.lookupWithFreeAPI(domain);
-    } catch (error) {
-      console.error('WHOIS lookup failed:', error);
+          // Fallback to free API
+          return await this.lookupWithFreeAPI(domain);
+        } catch (error) {
+          console.error('WHOIS lookup failed:', error);
 
-      // Return minimal data with generic registrar for ccTLDs
-      // Extract TLD for better messaging
-      const tld = domain.split('.').pop()?.toUpperCase() || 'UNKNOWN';
+          // Return minimal data with generic registrar for ccTLDs
+          // Extract TLD for better messaging
+          const tld = domain.split('.').pop()?.toUpperCase() || 'UNKNOWN';
 
-      return {
-        domain,
-        registrar: `${tld} Registry (WHOIS unavailable)`,
-        privacy: {
-          isPrivate: false,
-        },
-        locks: {
-          transferLocked: false,
-          updateLocked: false,
-          deleteLocked: false,
-        },
-        transferInfo: {
-          isEligible: false,
-          authCodeRequired: true,
-        },
-        rawData: `WHOIS lookup unavailable for .${tld?.toLowerCase()} domain. Domain appears to be registered based on DNS records.`,
-      };
-    }
+          return {
+            domain,
+            registrar: `${tld} Registry (WHOIS unavailable)`,
+            privacy: {
+              isPrivate: false,
+            },
+            locks: {
+              transferLocked: false,
+              updateLocked: false,
+              deleteLocked: false,
+            },
+            transferInfo: {
+              isEligible: false,
+              authCodeRequired: true,
+            },
+            rawData: `WHOIS lookup unavailable for .${tld?.toLowerCase()} domain. Domain appears to be registered based on DNS records.`,
+          };
+        }
+      },
+      { ttl: CacheTTL.WHOIS, namespace: CacheNamespace.WHOIS }
+    );
   }
 
   /**

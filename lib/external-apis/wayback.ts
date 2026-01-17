@@ -4,6 +4,7 @@
  */
 
 import { fetchWithTimeout } from '@/lib/utils/fetch-with-timeout';
+import { cacheService, CacheTTL, CacheNamespace } from '@/lib/cache/cache-service';
 
 export interface WaybackSnapshot {
   url: string;
@@ -235,35 +236,42 @@ export class WaybackMachineAPI {
   }
 
   /**
-   * Get recovery-specific snapshot info
+   * Get recovery-specific snapshot info (with caching)
    */
   async getRecoveryInfo(domain: string) {
-    const [availability, summary, bestSnapshot] = await Promise.all([
-      this.checkAvailability(domain),
-      this.getSnapshotSummary(domain),
-      this.getBestSnapshot(domain),
-    ]);
+    // Try cache first - Wayback data rarely changes
+    return await cacheService.getOrSet(
+      domain,
+      async () => {
+        const [availability, summary, bestSnapshot] = await Promise.all([
+          this.checkAvailability(domain),
+          this.getSnapshotSummary(domain),
+          this.getBestSnapshot(domain),
+        ]);
 
-    const hasContent = summary.totalSnapshots > 0;
-    const isComplete = bestSnapshot && parseInt(bestSnapshot.length) > 10000;
-    const isRecent = bestSnapshot &&
-      (Date.now() - bestSnapshot.date.getTime()) < 365 * 24 * 60 * 60 * 1000; // < 1 year
+        const hasContent = summary.totalSnapshots > 0;
+        const isComplete = bestSnapshot && parseInt(bestSnapshot.length) > 10000;
+        const isRecent = bestSnapshot &&
+          (Date.now() - bestSnapshot.date.getTime()) < 365 * 24 * 60 * 60 * 1000; // < 1 year
 
-    return {
-      available: hasContent, // Use hasContent instead of availability check
-      hasContent,
-      isComplete,
-      isRecent,
-      totalSnapshots: summary.totalSnapshots,
-      firstSnapshot: summary.firstSnapshot,
-      lastSnapshot: summary.lastSnapshot,
-      bestSnapshot,
-      yearlyBreakdown: Array.from(summary.years.entries())
-        .map(([year, count]) => ({ year, count }))
-        .sort((a, b) => b.year - a.year),
-      estimatedPages: Math.min(summary.totalSnapshots, 500), // Rough estimate
-      quality: this.assessQuality(summary, bestSnapshot),
-    };
+        return {
+          available: hasContent, // Use hasContent instead of availability check
+          hasContent,
+          isComplete,
+          isRecent,
+          totalSnapshots: summary.totalSnapshots,
+          firstSnapshot: summary.firstSnapshot,
+          lastSnapshot: summary.lastSnapshot,
+          bestSnapshot,
+          yearlyBreakdown: Array.from(summary.years.entries())
+            .map(([year, count]) => ({ year, count }))
+            .sort((a, b) => b.year - a.year),
+          estimatedPages: Math.min(summary.totalSnapshots, 500), // Rough estimate
+          quality: this.assessQuality(summary, bestSnapshot),
+        };
+      },
+      { ttl: CacheTTL.WAYBACK, namespace: CacheNamespace.WAYBACK }
+    );
   }
 
   /**

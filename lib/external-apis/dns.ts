@@ -4,6 +4,7 @@
  */
 
 import { fetchWithTimeout } from '@/lib/utils/fetch-with-timeout';
+import { cacheService, CacheTTL, CacheNamespace } from '@/lib/cache/cache-service';
 
 export interface DNSRecord {
   type: string;
@@ -54,50 +55,54 @@ export class DNSAPI {
   private dohUrl = 'https://cloudflare-dns.com/dns-query';
 
   /**
-   * Perform comprehensive DNS analysis
+   * Perform comprehensive DNS analysis (with caching)
    */
   async analyze(domain: string): Promise<DNSAnalysis> {
     const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-    const [
-      aRecords,
-      aaaaRecords,
-      mxRecords,
-      txtRecords,
-      cnameRecords,
-      nsRecords,
-      soaRecords,
-      caaRecords,
-    ] = await Promise.allSettled([
-      this.lookup(cleanDomain, 'A'),
-      this.lookup(cleanDomain, 'AAAA'),
-      this.lookup(cleanDomain, 'MX'),
-      this.lookup(cleanDomain, 'TXT'),
-      this.lookup(cleanDomain, 'CNAME'),
-      this.lookup(cleanDomain, 'NS'),
-      this.lookup(cleanDomain, 'SOA'),
-      this.lookup(cleanDomain, 'CAA'),
-    ]);
+    // Try cache first
+    return await cacheService.getOrSet(
+      cleanDomain,
+      async () => {
+        const [
+          aRecords,
+          aaaaRecords,
+          mxRecords,
+          txtRecords,
+          cnameRecords,
+          nsRecords,
+          soaRecords,
+          caaRecords,
+        ] = await Promise.allSettled([
+          this.lookup(cleanDomain, 'A'),
+          this.lookup(cleanDomain, 'AAAA'),
+          this.lookup(cleanDomain, 'MX'),
+          this.lookup(cleanDomain, 'TXT'),
+          this.lookup(cleanDomain, 'CNAME'),
+          this.lookup(cleanDomain, 'NS'),
+          this.lookup(cleanDomain, 'SOA'),
+          this.lookup(cleanDomain, 'CAA'),
+        ]);
 
-    const txtValues = txtRecords.status === 'fulfilled' ? txtRecords.value : [];
-    const emailSecurity = this.analyzeEmailSecurity(txtValues);
-    const caaValues = caaRecords.status === 'fulfilled' ? caaRecords.value : [];
+        const txtValues = txtRecords.status === 'fulfilled' ? txtRecords.value : [];
+        const emailSecurity = this.analyzeEmailSecurity(txtValues);
+        const caaValues = caaRecords.status === 'fulfilled' ? caaRecords.value : [];
 
-    return {
-      domain: cleanDomain,
-      records: {
-        A: aRecords.status === 'fulfilled' ? aRecords.value : [],
-        AAAA: aaaaRecords.status === 'fulfilled' ? aaaaRecords.value : [],
-        MX: mxRecords.status === 'fulfilled' ? mxRecords.value : [],
-        TXT: txtValues,
-        CNAME: cnameRecords.status === 'fulfilled' ? cnameRecords.value : [],
-        NS: nsRecords.status === 'fulfilled' ? nsRecords.value : [],
-        SOA: soaRecords.status === 'fulfilled' ? soaRecords.value : [],
-        CAA: caaValues,
-      },
-      emailSecurity,
-      security: {
-        hasCAA: caaValues.length > 0,
+        return {
+          domain: cleanDomain,
+          records: {
+            A: aRecords.status === 'fulfilled' ? aRecords.value : [],
+            AAAA: aaaaRecords.status === 'fulfilled' ? aaaaRecords.value : [],
+            MX: mxRecords.status === 'fulfilled' ? mxRecords.value : [],
+            TXT: txtValues,
+            CNAME: cnameRecords.status === 'fulfilled' ? cnameRecords.value : [],
+            NS: nsRecords.status === 'fulfilled' ? nsRecords.value : [],
+            SOA: soaRecords.status === 'fulfilled' ? soaRecords.value : [],
+            CAA: caaValues,
+          },
+          emailSecurity,
+          security: {
+            hasCAA: caaValues.length > 0,
         caaRecords: caaValues.map(r => r.value),
         dnssec: false, // Would need DNSSEC validation
       },
@@ -105,15 +110,18 @@ export class DNSAPI {
         ipv4: aRecords.status === 'fulfilled' ? aRecords.value.map(r => r.value) : [],
         ipv6: aaaaRecords.status === 'fulfilled' ? aaaaRecords.value.map(r => r.value) : [],
       },
-      mailServers: mxRecords.status === 'fulfilled'
-        ? mxRecords.value.map(r => ({
-            hostname: r.value,
-            priority: r.priority || 0,
-          }))
-        : [],
-      nameservers: nsRecords.status === 'fulfilled' ? nsRecords.value.map(r => r.value) : [],
-      timestamp: new Date(),
-    };
+          mailServers: mxRecords.status === 'fulfilled'
+            ? mxRecords.value.map(r => ({
+                hostname: r.value,
+                priority: r.priority || 0,
+              }))
+            : [],
+          nameservers: nsRecords.status === 'fulfilled' ? nsRecords.value.map(r => r.value) : [],
+          timestamp: new Date(),
+        };
+      },
+      { ttl: CacheTTL.DNS, namespace: CacheNamespace.DNS }
+    );
   }
 
   /**
