@@ -5,6 +5,7 @@
 
 import { reverseIPAPI, ReverseIPResult } from '../external-apis/reverse-ip';
 import { asnLookupAPI, NetworkInfo, ASNInfo, IPGeolocation } from '../external-apis/asn-lookup';
+import { techStackDetector, TechStack } from './tech-stack-detector';
 
 export interface NetworkIntelligence {
   input: string;
@@ -27,6 +28,15 @@ export interface NetworkIntelligence {
     securityRisk: 'Low' | 'Medium' | 'High';
     recommendations: string[];
   };
+  techStacks?: TechStack[];
+  techSummary?: {
+    totalAnalyzed: number;
+    cms: { name: string; count: number }[];
+    frameworks: { name: string; count: number }[];
+    servers: { name: string; count: number }[];
+    hostingPlatforms: { name: string; count: number }[];
+    programmingLanguages: { name: string; count: number }[];
+  };
   analyzedAt: string;
 }
 
@@ -34,7 +44,7 @@ export class NetworkAnalyzer {
   /**
    * Analyze network infrastructure for a domain or IP
    */
-  async analyze(input: string, options?: { limit?: number }): Promise<NetworkIntelligence> {
+  async analyze(input: string, options?: { limit?: number; detectTechStacks?: boolean }): Promise<NetworkIntelligence> {
     console.log(`[NetworkAnalyzer] Analyzing: ${input}`);
     const startTime = Date.now();
 
@@ -82,6 +92,41 @@ export class NetworkAnalyzer {
     // Step 6: Analyze hosting environment
     const analysis = this.analyzeEnvironment(reverseIP, networkInfo);
 
+    // Step 7: Detect tech stacks for domains (if enabled and limited)
+    let techStacks: TechStack[] | undefined;
+    let techSummary;
+
+    if (options?.detectTechStacks && reverseIP.domains.length > 0) {
+      // Only analyze first 3 domains for tech stacks to avoid timeouts
+      const domainsToAnalyze = reverseIP.domains.slice(0, Math.min(3, reverseIP.domains.length));
+      console.log(`[NetworkAnalyzer] Detecting tech stacks for ${domainsToAnalyze.length} domains...`);
+
+      techStacks = await Promise.all(
+        domainsToAnalyze.map(async ({ domain }) => {
+          try {
+            return await techStackDetector.detect(domain);
+          } catch (error: any) {
+            console.error(`[NetworkAnalyzer] Failed to detect tech stack for ${domain}:`, error.message);
+            return {
+              domain,
+              technologies: [],
+              server: null,
+              cms: null,
+              frameworks: [],
+              analytics: [],
+              cdn: null,
+              hostingPlatform: null,
+              ssl: null,
+              detectedAt: new Date().toISOString(),
+            };
+          }
+        })
+      );
+
+      // Build tech summary
+      techSummary = this.buildTechSummary(techStacks);
+    }
+
     console.log(`[NetworkAnalyzer] Analysis complete in ${Date.now() - startTime}ms`);
 
     return {
@@ -93,6 +138,8 @@ export class NetworkAnalyzer {
       relatedIPs,
       infrastructure,
       analysis,
+      techStacks,
+      techSummary,
       analyzedAt: new Date().toISOString(),
     };
   }
@@ -220,6 +267,65 @@ export class NetworkAnalyzer {
       hostingEnvironment,
       securityRisk,
       recommendations,
+    };
+  }
+
+  /**
+   * Build technology summary from tech stacks
+   */
+  private buildTechSummary(techStacks: TechStack[]) {
+    const cmsCount = new Map<string, number>();
+    const frameworkCount = new Map<string, number>();
+    const serverCount = new Map<string, number>();
+    const hostingPlatformCount = new Map<string, number>();
+    const languageCount = new Map<string, number>();
+
+    for (const stack of techStacks) {
+      // Count CMS
+      if (stack.cms) {
+        cmsCount.set(stack.cms, (cmsCount.get(stack.cms) || 0) + 1);
+      }
+
+      // Count frameworks
+      for (const framework of stack.frameworks) {
+        frameworkCount.set(framework, (frameworkCount.get(framework) || 0) + 1);
+      }
+
+      // Count servers
+      if (stack.server) {
+        serverCount.set(stack.server.software, (serverCount.get(stack.server.software) || 0) + 1);
+      }
+
+      // Count hosting platforms
+      if (stack.hostingPlatform) {
+        hostingPlatformCount.set(stack.hostingPlatform, (hostingPlatformCount.get(stack.hostingPlatform) || 0) + 1);
+      }
+
+      // Count programming languages
+      for (const tech of stack.technologies) {
+        if (tech.category === 'Programming Language') {
+          languageCount.set(tech.name, (languageCount.get(tech.name) || 0) + 1);
+        }
+      }
+    }
+
+    return {
+      totalAnalyzed: techStacks.length,
+      cms: Array.from(cmsCount.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count),
+      frameworks: Array.from(frameworkCount.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count),
+      servers: Array.from(serverCount.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count),
+      hostingPlatforms: Array.from(hostingPlatformCount.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count),
+      programmingLanguages: Array.from(languageCount.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count),
     };
   }
 }

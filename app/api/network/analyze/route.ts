@@ -108,8 +108,11 @@ export async function POST(request: NextRequest) {
 
     console.log(`[NetworkAnalyze] Analyzing: ${input} (tier: ${userTier}, limit: ${domainLimit})`);
 
-    // 4. Perform network analysis
-    const analysis = await networkAnalyzer.analyze(input, { limit: domainLimit });
+    // 4. Perform network analysis with tech stack detection
+    const analysis = await networkAnalyzer.analyze(input, {
+      limit: domainLimit,
+      detectTechStacks: true, // Enable tech stack detection
+    });
 
     // 5. Track usage
     usageTracker.trackRequest({
