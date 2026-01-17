@@ -89,7 +89,16 @@ export class DomainStatusAnalyzer {
     };
 
     // Check if domain is registered
-    if (!whoisData || !whoisData.registrar) {
+    // A domain is considered registered if it has:
+    // 1. A registrar field, OR
+    // 2. A createdDate (indicates registration), OR
+    // 3. Registrant information
+    const hasRegistrar = whoisData?.registrar && whoisData.registrar !== 'AVAILABLE';
+    const hasCreatedDate = whoisData?.createdDate;
+    const hasRegistrant = whoisData?.registrant?.name || whoisData?.registrant?.email;
+    const isRegistered = hasRegistrar || hasCreatedDate || hasRegistrant;
+
+    if (!whoisData || !isRegistered) {
       report.status = 'AVAILABLE';
       report.isRegistered = false;
       report.recoveryDifficulty = 'EASY';
@@ -102,7 +111,9 @@ export class DomainStatusAnalyzer {
     }
 
     report.isRegistered = true;
-    report.registrar = whoisData.registrar;
+    if (whoisData.registrar) {
+      report.registrar = whoisData.registrar;
+    }
 
     if (whoisData.registrarAbuseEmail || whoisData.registrarAbusePhone) {
       report.registrarContact = {
