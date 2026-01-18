@@ -31,10 +31,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate password strength
+    // Validate password strength and length
     if (password.length < 8) {
       return NextResponse.json(
         { error: 'Password must be at least 8 characters long' },
+        { status: 400 }
+      );
+    }
+
+    // Prevent DoS via extremely long passwords (bcrypt is slow)
+    if (password.length > 128) {
+      return NextResponse.json(
+        { error: 'Password too long (maximum 128 characters)' },
         { status: 400 }
       );
     }

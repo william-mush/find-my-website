@@ -30,8 +30,8 @@ export async function POST(request: NextRequest) {
   let statusCode = 200;
 
   try {
-    // 1. Rate limiting
-    const rateLimitResult = await rateLimiter.checkLimit(clientIP);
+    // 1. Rate limiting - Network analysis: 1 request per minute (more expensive)
+    const rateLimitResult = await rateLimiter.checkLimit(clientIP, 1, 60);
 
     if (!rateLimitResult.success) {
       statusCode = 429;

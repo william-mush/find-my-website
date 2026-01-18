@@ -18,17 +18,28 @@ export function proxy(request: NextRequest) {
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 
-  // Content Security Policy
+  // Content Security Policy - Improved security
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js requires unsafe-inline/eval
-    "style-src 'self' 'unsafe-inline'", // Tailwind requires unsafe-inline
-    "img-src 'self' data: https:",
+    // Allow Next.js scripts + inline for dynamic imports (still requires unsafe-inline for now)
+    // TODO: Use nonces for inline scripts in future
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://vercel.live",
+    // Tailwind requires unsafe-inline for dynamic styles
+    // TODO: Extract critical CSS and use CSP hash
+    "style-src 'self' 'unsafe-inline'",
+    // Restrict images to self, data URIs, and specific external sources
+    "img-src 'self' data: https://*.vercel.app https://avatars.githubusercontent.com https://lh3.googleusercontent.com",
     "font-src 'self' data:",
-    "connect-src 'self' https://*.vercel.app https://web.archive.org https://rdap.org https://cloudflare-dns.com",
+    // API connections - whitelist specific domains
+    "connect-src 'self' https://*.vercel.app https://web.archive.org https://rdap.org https://dns.google https://hackertarget.com https://ipapi.is",
     "frame-ancestors 'self'",
     "base-uri 'self'",
     "form-action 'self'",
+    // Block object/embed for extra protection
+    "object-src 'none'",
+    "frame-src 'none'",
+    // Upgrade insecure requests
+    "upgrade-insecure-requests",
   ].join('; ');
 
   response.headers.set('Content-Security-Policy', csp);

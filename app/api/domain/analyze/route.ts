@@ -63,8 +63,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Rate Limiting Check (Redis)
-    const rateLimitResult = await rateLimiter.checkLimit(clientIP, 10, 60);
+    // 2. Rate Limiting Check (Redis) - Stricter: 3 requests per minute
+    const rateLimitResult = await rateLimiter.checkLimit(clientIP, 3, 60);
     rateLimitRemaining = rateLimitResult.remaining;
 
     if (!rateLimitResult.success) {
