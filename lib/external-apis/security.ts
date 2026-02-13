@@ -4,6 +4,7 @@
  */
 
 import { domainClassifier } from '../intelligence/domain-classifier';
+import type { WhoisData } from './whois';
 
 export interface SecurityAnalysis {
   domain: string;
@@ -73,7 +74,7 @@ export class SecurityAPI {
   /**
    * Perform comprehensive security analysis
    */
-  async analyze(domain: string, whoisData?: any): Promise<SecurityAnalysis> {
+  async analyze(domain: string, whoisData?: WhoisData): Promise<SecurityAnalysis> {
     const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
     const domainAge = this.calculateDomainAge(whoisData);
@@ -137,7 +138,7 @@ export class SecurityAPI {
   /**
    * Calculate domain age from WHOIS data
    */
-  private calculateDomainAge(whoisData?: any): SecurityAnalysis['domainAge'] {
+  private calculateDomainAge(whoisData?: WhoisData): SecurityAnalysis['domainAge'] {
     const createdDate = whoisData?.createdDate ? new Date(whoisData.createdDate) : undefined;
 
     if (!createdDate || isNaN(createdDate.getTime())) {
@@ -168,7 +169,7 @@ export class SecurityAPI {
    */
   private calculateReputation(
     domainAge: SecurityAnalysis['domainAge'],
-    whoisData?: any
+    whoisData?: WhoisData
   ): SecurityAnalysis['reputation'] {
     let score = 50; // Start at neutral
     const reasons: string[] = [];
@@ -224,7 +225,7 @@ export class SecurityAPI {
    */
   private async checkSSL(domain: string): Promise<SecurityAnalysis['ssl']> {
     try {
-      const response = await fetch(`https://${domain}`, {
+      await fetch(`https://${domain}`, {
         method: 'HEAD',
       });
 
@@ -232,48 +233,12 @@ export class SecurityAPI {
         hasCertificate: true,
         isExpired: false,
       };
-    } catch (error) {
+    } catch {
       return {
         hasCertificate: false,
         isExpired: false,
       };
     }
-  }
-
-  /**
-   * Check if domain is on Google Safe Browsing
-   * Note: Requires API key in production
-   */
-  async checkSafeBrowsing(domain: string): Promise<{
-    isSafe: boolean;
-    threats: string[];
-  }> {
-    // Placeholder - integrate with Google Safe Browsing API
-    // https://developers.google.com/safe-browsing/v4
-    return {
-      isSafe: true,
-      threats: [],
-    };
-  }
-
-  /**
-   * Check VirusTotal for malware/phishing reports
-   * Note: Requires API key in production
-   */
-  async checkVirusTotal(domain: string): Promise<{
-    malicious: number;
-    suspicious: number;
-    harmless: number;
-    undetected: number;
-  }> {
-    // Placeholder - integrate with VirusTotal API v3
-    // https://developers.virustotal.com/reference/domains
-    return {
-      malicious: 0,
-      suspicious: 0,
-      harmless: 0,
-      undetected: 0,
-    };
   }
 
   /**

@@ -253,6 +253,7 @@ export const generatedScripts = pgTable('generated_scripts', {
 export const apiUsage = pgTable('api_usage', {
   id: serial('id').primaryKey(),
   ipAddress: varchar('ip_address', { length: 45 }).notNull(),
+  userId: varchar('user_id', { length: 255 }),
   endpoint: varchar('endpoint', { length: 255 }).notNull(),
   domain: varchar('domain', { length: 255 }),
 
@@ -275,6 +276,7 @@ export const apiUsage = pgTable('api_usage', {
   requestedAt: timestamp('requested_at').defaultNow().notNull(),
 }, (table) => ({
   ipIdx: index('api_usage_ip_idx').on(table.ipAddress),
+  userIdIdx: index('api_usage_user_id_idx').on(table.userId),
   endpointIdx: index('api_usage_endpoint_idx').on(table.endpoint),
   requestedAtIdx: index('api_usage_requested_at_idx').on(table.requestedAt),
   blockedIdx: index('api_usage_blocked_idx').on(table.wasBlocked),
@@ -324,6 +326,7 @@ export const users = pgTable('users', {
   emailVerified: timestamp('email_verified'),
   image: text('image'),
   password: varchar('password', { length: 255 }), // Hashed password for email/password auth
+  tier: varchar('tier', { length: 20 }).default('free').notNull(), // 'free', 'pro', 'enterprise'
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
@@ -446,4 +449,87 @@ export const networkRelationships = pgTable('network_relationships', {
   ipIdx: index('network_relationships_ip_idx').on(table.ip),
   asnIdx: index('network_relationships_asn_idx').on(table.asn),
   compoundIdx: index('network_relationships_domain_ip_idx').on(table.domain, table.ip),
+}));
+
+// ============================================================================
+// USER DASHBOARD TABLES
+// ============================================================================
+
+// Saved domains (user bookmarks/favorites)
+export const savedDomains = pgTable('saved_domains', {
+  id: serial('id').primaryKey(),
+  userId: varchar('user_id', { length: 255 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  domain: varchar('domain', { length: 255 }).notNull(),
+  notes: text('notes'),
+  tags: jsonb('tags').$type<string[]>().default([]),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('saved_domains_user_id_idx').on(table.userId),
+  domainIdx: index('saved_domains_domain_idx').on(table.domain),
+  userDomainIdx: index('saved_domains_user_domain_idx').on(table.userId, table.domain),
+}));
+
+// Search history (automatic tracking)
+export const searchHistory = pgTable('search_history', {
+  id: serial('id').primaryKey(),
+  userId: varchar('user_id', { length: 255 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  domain: varchar('domain', { length: 255 }).notNull(),
+  analysisType: varchar('analysis_type', { length: 20 }).notNull().default('domain'), // 'domain' or 'network'
+  resultSummary: jsonb('result_summary').$type<{
+    status?: string;
+    isRegistered?: boolean;
+    registrar?: string;
+    expiryDate?: string;
+    isOnline?: boolean;
+    recoveryDifficulty?: string;
+  }>(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('search_history_user_id_idx').on(table.userId),
+  domainIdx: index('search_history_domain_idx').on(table.domain),
+  createdAtIdx: index('search_history_created_at_idx').on(table.createdAt),
+}));
+
+// Domain watchlist (monitoring)
+export const domainWatchlist = pgTable('domain_watchlist', {
+  id: serial('id').primaryKey(),
+  userId: varchar('user_id', { length: 255 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  domain: varchar('domain', { length: 255 }).notNull(),
+  alertOnChange: boolean('alert_on_change').default(true),
+  lastCheckedAt: timestamp('last_checked_at'),
+  lastStatus: jsonb('last_status').$type<{
+    isRegistered?: boolean;
+    isOnline?: boolean;
+    registrar?: string;
+    expiryDate?: string;
+    status?: string;
+  }>(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('domain_watchlist_user_id_idx').on(table.userId),
+  domainIdx: index('domain_watchlist_domain_idx').on(table.domain),
+  userDomainIdx: index('domain_watchlist_user_domain_idx').on(table.userId, table.domain),
+}));
+
+// ============================================================================
+// API KEYS
+// ============================================================================
+
+// API keys for programmatic access
+export const apiKeys = pgTable('api_keys', {
+  id: serial('id').primaryKey(),
+  userId: varchar('user_id', { length: 255 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  keyHash: varchar('key_hash', { length: 255 }).notNull(), // bcrypt hash of the full key
+  keyPrefix: varchar('key_prefix', { length: 16 }).notNull(), // first 8 chars for display (e.g. "fmw_live")
+  permissions: jsonb('permissions').default(['domain:analyze']), // JSON array of permission strings
+  rateLimit: integer('rate_limit').default(100), // requests per hour
+  lastUsedAt: timestamp('last_used_at'),
+  expiresAt: timestamp('expires_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  revokedAt: timestamp('revoked_at'),
+}, (table) => ({
+  userIdIdx: index('api_keys_user_id_idx').on(table.userId),
+  keyPrefixIdx: index('api_keys_key_prefix_idx').on(table.keyPrefix),
 }));

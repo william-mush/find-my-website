@@ -4,6 +4,8 @@
  */
 
 import { domainClassifier } from '../intelligence/domain-classifier';
+import type { WhoisData } from './whois';
+import type { WaybackRecoveryInfo } from './wayback';
 
 export interface SEOAnalysis {
   domain: string;
@@ -68,8 +70,8 @@ export class SEOAPI {
    */
   async analyze(
     domain: string,
-    waybackData?: any,
-    whoisData?: any
+    waybackData?: WaybackRecoveryInfo,
+    whoisData?: WhoisData
   ): Promise<SEOAnalysis> {
     const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
@@ -199,7 +201,7 @@ export class SEOAPI {
   /**
    * Analyze content from Wayback data
    */
-  private analyzeContent(waybackData?: any): {
+  private analyzeContent(waybackData?: WaybackRecoveryInfo): {
     contentAge: SEOAnalysis['content']['contentAge'];
     peakDate?: Date;
     peakPeriod?: string;
@@ -214,8 +216,8 @@ export class SEOAPI {
       };
     }
 
-    const snapshots = waybackData.snapshots;
-    const timestamps = snapshots.map((s: any) => new Date(s.timestamp));
+    const snapshots = waybackData.snapshots!;
+    const timestamps = snapshots.map((s) => s.date);
     const oldest = timestamps[0];
     const newest = timestamps[timestamps.length - 1];
 
@@ -276,7 +278,7 @@ export class SEOAPI {
   /**
    * Estimate traffic trend from Wayback data
    */
-  private estimateTrafficTrend(waybackData?: any): SEOAnalysis['traffic']['trafficTrend'] {
+  private estimateTrafficTrend(waybackData?: WaybackRecoveryInfo): SEOAnalysis['traffic']['trafficTrend'] {
     if (!waybackData || !waybackData.snapshots || waybackData.snapshots.length < 10) {
       return 'UNKNOWN';
     }
@@ -341,7 +343,7 @@ export class SEOAPI {
   /**
    * Calculate domain age in years
    */
-  private calculateDomainAge(whoisData?: any): number {
+  private calculateDomainAge(whoisData?: WhoisData): number {
     if (!whoisData?.createdDate) return 0;
 
     const created = new Date(whoisData.createdDate);

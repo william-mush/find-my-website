@@ -73,7 +73,7 @@ export default function SignUpPage() {
         setSuccessMessage('Account created! Please sign in.');
         setTimeout(() => router.push('/auth/signin'), 2000);
       }
-    } catch (error) {
+    } catch {
       setErrorMessage('An error occurred. Please try again.');
     } finally {
       setIsLoading(false);

@@ -4,7 +4,7 @@
  */
 
 import { reverseIPAPI, ReverseIPResult } from '../external-apis/reverse-ip';
-import { asnLookupAPI, NetworkInfo, ASNInfo, IPGeolocation } from '../external-apis/asn-lookup';
+import { asnLookupAPI, NetworkInfo } from '../external-apis/asn-lookup';
 import { techStackDetector, TechStack } from './tech-stack-detector';
 
 export interface NetworkIntelligence {
@@ -105,8 +105,8 @@ export class NetworkAnalyzer {
         domainsToAnalyze.map(async ({ domain }) => {
           try {
             return await techStackDetector.detect(domain);
-          } catch (error: any) {
-            console.error(`[NetworkAnalyzer] Failed to detect tech stack for ${domain}:`, error.message);
+          } catch (error) {
+            console.error(`[NetworkAnalyzer] Failed to detect tech stack for ${domain}:`, error instanceof Error ? error.message : error);
             return {
               domain,
               technologies: [],
@@ -160,7 +160,7 @@ export class NetworkAnalyzer {
         if (dnsResponse.ok) {
           const dnsData = await dnsResponse.json();
           if (dnsData.Answer) {
-            dnsData.Answer.forEach((answer: any) => {
+            dnsData.Answer.forEach((answer: { type: number; data: string }) => {
               if (answer.type === 1) {
                 // A record
                 ips.add(answer.data);
@@ -168,7 +168,7 @@ export class NetworkAnalyzer {
             });
           }
         }
-      } catch (error) {
+      } catch {
         // Ignore errors, continue with next domain
       }
     }

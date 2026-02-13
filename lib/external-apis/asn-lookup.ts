@@ -108,7 +108,7 @@ class ASNLookupAPI {
   /**
    * Detect network type based on API response
    */
-  private detectNetworkType(data: any): ASNInfo['networkType'] {
+  private detectNetworkType(data: { company?: { type?: string }; asn?: { type?: string }; is_datacenter?: boolean }): ASNInfo['networkType'] {
     if (data.company?.type === 'hosting' || data.is_datacenter) {
       return 'Hosting';
     }

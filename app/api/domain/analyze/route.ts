@@ -10,6 +10,10 @@ import { withTimeout } from '@/lib/utils/fetch-with-timeout';
 import { rateLimiter, getClientIP } from '@/lib/security/rate-limiter';
 import { inputValidator } from '@/lib/security/input-validator';
 import { usageTracker } from '@/lib/security/usage-tracker';
+import { authenticateApiKey } from '@/lib/api-keys';
+import { auth } from '@/auth';
+import { db } from '@/lib/db';
+import { searchHistory } from '@/lib/db/schema';
 
 // Vercel serverless timeout is 10s on free tier
 // We need to complete analysis in under 8s to be safe
@@ -23,17 +27,22 @@ export async function POST(request: NextRequest) {
 
   let domain: string | undefined;
   let statusCode = 200;
-  let wasBlocked = false;
-  let wasRateLimited = false;
-  let wasInvalidInput = false;
   let rateLimitRemaining = 10;
 
   try {
+    // 0. API Key Authentication (alternative to session auth)
+    // If an API key is provided via Authorization header, validate it.
+    // Authenticated API key requests bypass IP-based rate limiting and
+    // use the key's own rate limit instead.
+    const apiKeyAuth = await authenticateApiKey(request);
+    if (apiKeyAuth) {
+      console.log(`[Analysis] Authenticated via API key (keyId: ${apiKeyAuth.keyId}, userId: ${apiKeyAuth.userId})`);
+    }
+
     // 1. Check IP-based blocking (database level)
     const ipStats = await usageTracker.getIPStats(clientIP);
     if (ipStats?.isBlocked && ipStats.blockedUntil && new Date() < ipStats.blockedUntil) {
       statusCode = 429;
-      wasBlocked = true;
 
       // Track this blocked request
       usageTracker.trackRequest({
@@ -63,13 +72,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Rate Limiting Check (Redis) - Stricter: 3 requests per minute
-    const rateLimitResult = await rateLimiter.checkLimit(clientIP, 3, 60);
+    // 2. Rate Limiting Check (Redis)
+    // API key users get their own rate limit bucket (keyed by keyId) with a higher limit.
+    // Anonymous/session users get the stricter IP-based limit (3/min).
+    const rateLimitKey = apiKeyAuth ? `apikey:${apiKeyAuth.keyId}` : clientIP;
+    const rateLimitMax = apiKeyAuth ? apiKeyAuth.rateLimit : 3;
+    const rateLimitWindow = apiKeyAuth ? 3600 : 60; // API keys: per hour; anonymous: per minute
+    const rateLimitResult = await rateLimiter.checkLimit(rateLimitKey, rateLimitMax, rateLimitWindow);
     rateLimitRemaining = rateLimitResult.remaining;
 
     if (!rateLimitResult.success) {
       statusCode = 429;
-      wasRateLimited = true;
 
       // Track rate limit violation
       usageTracker.trackRequest({
@@ -132,7 +145,6 @@ export async function POST(request: NextRequest) {
 
     if (!validationResult.valid) {
       statusCode = 400;
-      wasInvalidInput = true;
 
       // Track invalid input attempt
       usageTracker.trackRequest({
@@ -226,6 +238,35 @@ export async function POST(request: NextRequest) {
       rateLimitRemaining: rateLimitResult.remaining,
     });
 
+    // Save to search history for authenticated users (fire-and-forget)
+    try {
+      const session = await auth();
+      if (session?.user?.id) {
+        db.insert(searchHistory)
+          .values({
+            userId: session.user.id,
+            domain: cleanDomain,
+            analysisType: 'domain',
+            resultSummary: {
+              status: statusReport?.status || undefined,
+              isRegistered: whoisData ? true : undefined,
+              registrar: whoisData?.registrar || undefined,
+              expiryDate: whoisData?.expiryDate
+                ? (typeof whoisData.expiryDate === 'string'
+                    ? whoisData.expiryDate
+                    : new Date(whoisData.expiryDate as unknown as string).toISOString())
+                : undefined,
+              isOnline: websiteData?.isOnline || undefined,
+              recoveryDifficulty: statusReport?.recoveryDifficulty || undefined,
+            },
+          })
+          .then(() => console.log(`[History] Saved search for ${cleanDomain} (user: ${session.user!.id})`))
+          .catch((err: unknown) => console.error('[History] Failed to save search:', err));
+      }
+    } catch {
+      // Don't let history saving failure affect the response
+    }
+
     // Build comprehensive response with rate limit headers
     const headers = {
       'X-RateLimit-Limit': rateLimitResult.limit.toString(),
@@ -313,7 +354,7 @@ export async function POST(request: NextRequest) {
       analyzedAt: new Date().toISOString(),
       analysisVersion: '2.0',
     }, { headers });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Domain analysis failed:', error);
     statusCode = 500;
 
@@ -331,7 +372,7 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(
-      { error: 'Analysis failed', message: error.message },
+      { error: 'Analysis failed', message: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

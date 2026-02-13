@@ -188,31 +188,31 @@ export class WhoisAPI {
   /**
    * Parse WhoisXML API response
    */
-  private parseWhoisXMLResponse(domain: string, data: any): WhoisData {
-    const whoisRecord = data.WhoisRecord || {};
-    const registryData = whoisRecord.registryData || {};
-    const registrant = whoisRecord.registrant || {};
+  private parseWhoisXMLResponse(domain: string, data: Record<string, unknown>): WhoisData {
+    const whoisRecord = (data.WhoisRecord || {}) as Record<string, unknown>;
+    const registrant = (whoisRecord.registrant || {}) as Record<string, unknown>;
 
-    const statuses = whoisRecord.status || [];
+    const statuses = (whoisRecord.status || []) as string[];
+    const nameServers = whoisRecord.nameServers as Record<string, unknown> | undefined;
 
     return {
       domain,
-      registrar: whoisRecord.registrarName,
-      registrarUrl: whoisRecord.registrarUrl,
-      createdDate: this.parseDate(whoisRecord.createdDate),
-      updatedDate: this.parseDate(whoisRecord.updatedDate),
-      expiryDate: this.parseDate(whoisRecord.expiresDate),
+      registrar: whoisRecord.registrarName as string | undefined,
+      registrarUrl: whoisRecord.registrarUrl as string | undefined,
+      createdDate: this.parseDate(whoisRecord.createdDate as string | undefined),
+      updatedDate: this.parseDate(whoisRecord.updatedDate as string | undefined),
+      expiryDate: this.parseDate(whoisRecord.expiresDate as string | undefined),
       registrant: {
-        name: registrant.name,
-        organization: registrant.organization,
-        email: registrant.email,
-        phone: registrant.telephone,
-        country: registrant.country,
+        name: registrant.name as string | undefined,
+        organization: registrant.organization as string | undefined,
+        email: registrant.email as string | undefined,
+        phone: registrant.telephone as string | undefined,
+        country: registrant.country as string | undefined,
       },
-      nameservers: whoisRecord.nameServers?.hostNames || [],
+      nameservers: (nameServers?.hostNames as string[]) || [],
       status: statuses,
       privacy: {
-        isPrivate: registrant.name?.toUpperCase().includes('REDACTED') || false,
+        isPrivate: (registrant.name as string | undefined)?.toUpperCase().includes('REDACTED') || false,
       },
       locks: {
         transferLocked: statuses.some((s: string) =>
@@ -236,46 +236,47 @@ export class WhoisAPI {
   /**
    * Parse RDAP response (free API)
    */
-  private parseRDAPResponse(domain: string, data: any): WhoisData {
-    const events = data.events || [];
-    const entities = data.entities || [];
+  private parseRDAPResponse(domain: string, data: Record<string, unknown>): WhoisData {
+    const events = (data.events || []) as Array<Record<string, unknown>>;
+    const entities = (data.entities || []) as Array<Record<string, unknown>>;
 
     // Find registrar
-    const registrarEntity = entities.find((e: any) =>
-      e.roles?.includes('registrar')
+    const registrarEntity = entities.find((e) =>
+      (e.roles as string[] | undefined)?.includes('registrar')
     );
 
     // Find important dates
-    const createdEvent = events.find((e: any) => e.eventAction === 'registration');
-    const updatedEvent = events.find((e: any) => e.eventAction === 'last changed');
-    const expiryEvent = events.find((e: any) => e.eventAction === 'expiration');
+    const createdEvent = events.find((e) => e.eventAction === 'registration');
+    const updatedEvent = events.find((e) => e.eventAction === 'last changed');
+    const expiryEvent = events.find((e) => e.eventAction === 'expiration');
 
     // Find registrant
-    const registrantEntity = entities.find((e: any) =>
-      e.roles?.includes('registrant')
+    const registrantEntity = entities.find((e) =>
+      (e.roles as string[] | undefined)?.includes('registrant')
     );
 
     // Find admin contact
-    const adminEntity = entities.find((e: any) =>
-      e.roles?.includes('administrative')
+    const adminEntity = entities.find((e) =>
+      (e.roles as string[] | undefined)?.includes('administrative')
     );
 
     // Find tech contact
-    const techEntity = entities.find((e: any) =>
-      e.roles?.includes('technical')
+    const techEntity = entities.find((e) =>
+      (e.roles as string[] | undefined)?.includes('technical')
     );
 
     // Parse vCard data
-    const parseVCard = (entity: any) => {
-      if (!entity?.vcardArray?.[1]) return {};
+    const parseVCard = (entity: Record<string, unknown> | undefined) => {
+      const vcardArray = entity?.vcardArray as unknown[] | undefined;
+      if (!vcardArray?.[1]) return {};
 
-      const vcard = entity.vcardArray[1];
+      const vcard = vcardArray[1] as Array<[string, unknown, unknown, unknown]>;
       return {
-        name: vcard.find((v: any) => v[0] === 'fn')?.[3],
-        organization: vcard.find((v: any) => v[0] === 'org')?.[3],
-        email: vcard.find((v: any) => v[0] === 'email')?.[3],
-        phone: vcard.find((v: any) => v[0] === 'tel')?.[3],
-        address: vcard.find((v: any) => v[0] === 'adr')?.[3],
+        name: vcard.find((v) => v[0] === 'fn')?.[3] as string | undefined,
+        organization: vcard.find((v) => v[0] === 'org')?.[3] as string | undefined,
+        email: vcard.find((v) => v[0] === 'email')?.[3] as string | undefined,
+        phone: vcard.find((v) => v[0] === 'tel')?.[3] as string | undefined,
+        address: vcard.find((v) => v[0] === 'adr')?.[3] as string | undefined,
       };
     };
 
@@ -291,7 +292,7 @@ export class WhoisAPI {
                       registrantName.includes('WHOISGUARD');
 
     // Check domain locks
-    const statuses = data.status || [];
+    const statuses = (data.status || []) as string[];
     const locks = {
       transferLocked: statuses.some((s: string) =>
         s.toLowerCase().includes('clienttransferprohibited') ||
@@ -306,7 +307,7 @@ export class WhoisAPI {
     };
 
     // Calculate transfer eligibility
-    const createdDate = createdEvent ? new Date(createdEvent.eventDate) : undefined;
+    const createdDate = createdEvent ? new Date(createdEvent.eventDate as string) : undefined;
     const daysSinceCreation = createdDate
       ? Math.floor((Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24))
       : 0;
@@ -317,12 +318,15 @@ export class WhoisAPI {
       authCodeRequired: true,
     };
 
+    const registrarVcard = registrarEntity?.vcardArray as unknown[] | undefined;
+    const registrarVcardEntries = registrarVcard?.[1] as Array<[string, unknown, unknown, unknown]> | undefined;
+
     return {
       domain,
-      registrar: registrarEntity?.vcardArray?.[1]?.find((v: any) => v[0] === 'fn')?.[3],
-      createdDate: createdEvent ? new Date(createdEvent.eventDate) : undefined,
-      updatedDate: updatedEvent ? new Date(updatedEvent.eventDate) : undefined,
-      expiryDate: expiryEvent ? new Date(expiryEvent.eventDate) : undefined,
+      registrar: registrarVcardEntries?.find((v) => v[0] === 'fn')?.[3] as string | undefined,
+      createdDate: createdEvent ? new Date(createdEvent.eventDate as string) : undefined,
+      updatedDate: updatedEvent ? new Date(updatedEvent.eventDate as string) : undefined,
+      expiryDate: expiryEvent ? new Date(expiryEvent.eventDate as string) : undefined,
       registrant: registrantEntity ? {
         name: registrantData.name,
         organization: registrantData.organization,
@@ -341,7 +345,7 @@ export class WhoisAPI {
         email: techData.email,
         phone: techData.phone,
       } : undefined,
-      nameservers: data.nameservers?.map((ns: any) => ns.ldhName) || [],
+      nameservers: (data.nameservers as Array<Record<string, unknown>> | undefined)?.map((ns) => ns.ldhName as string) || [],
       status: statuses,
       privacy: {
         isPrivate,

@@ -5,6 +5,7 @@ import { DomainSearch } from '@/components/domain/DomainSearch';
 import { DomainResults } from '@/components/domain/DomainResults';
 
 export default function Home() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [searchResults, setSearchResults] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,8 +29,8 @@ export default function Home() {
 
       const data = await response.json();
       setSearchResults(data);
-    } catch (err: any) {
-      setError(err.message || 'Something went wrong');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
       setIsLoading(false);
     }
@@ -74,7 +75,7 @@ export default function Home() {
         {!searchResults && !isLoading && (
           <div className="mt-16 max-w-6xl mx-auto">
             <h2 className="text-2xl md:text-3xl font-bold text-center text-gray-900 dark:text-white mb-12">
-              What You'll Get
+              What You&apos;ll Get
             </h2>
 
             <div className="grid md:grid-cols-3 gap-8">

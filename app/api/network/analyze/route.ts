@@ -3,23 +3,33 @@ import { networkAnalyzer } from '@/lib/intelligence/network-analyzer';
 import { rateLimiter, getClientIP } from '@/lib/security/rate-limiter';
 import { inputValidator } from '@/lib/security/input-validator';
 import { usageTracker } from '@/lib/security/usage-tracker';
+import { auth } from '@/auth';
+import { db } from '@/lib/db';
+import { users, searchHistory } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 export const maxDuration = 10;
 
-// Tier limits for network lookups
-const TIER_LIMITS = {
-  FREE: {
-    lookupsPerMonth: 1,
+// Tier-based limits for network scans
+const TIER_LIMITS: Record<string, { scansPerDay: number; domainsPerLookup: number }> = {
+  free: {
+    scansPerDay: 5,
     domainsPerLookup: 5,
   },
-  PRO: {
-    lookupsPerMonth: 50,
+  pro: {
+    scansPerDay: 50,
     domainsPerLookup: 100,
   },
-  BUSINESS: {
-    lookupsPerMonth: 500,
+  enterprise: {
+    scansPerDay: Infinity,
     domainsPerLookup: 500,
   },
+};
+
+// Unauthenticated users get a very limited allowance
+const ANONYMOUS_LIMITS = {
+  scansPerDay: 2,
+  domainsPerLookup: 5,
 };
 
 export async function POST(request: NextRequest) {
@@ -64,7 +74,70 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Parse and validate input
+    // 2. Check authentication and determine tier
+    const session = await auth();
+    let userTier = 'anonymous';
+    let userId: string | undefined;
+    let dailyLimit = ANONYMOUS_LIMITS.scansPerDay;
+    let domainLimit = ANONYMOUS_LIMITS.domainsPerLookup;
+
+    if (session?.user?.id) {
+      userId = session.user.id;
+
+      // Look up user tier from database
+      const userRecord = await db
+        .select({ tier: users.tier })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      userTier = userRecord[0]?.tier || 'free';
+      const tierConfig = TIER_LIMITS[userTier] || TIER_LIMITS.free;
+      dailyLimit = tierConfig.scansPerDay;
+      domainLimit = tierConfig.domainsPerLookup;
+    }
+
+    // 3. Check daily usage limit
+    const todayUsage = await usageTracker.getDailyUsageCount(
+      '/api/network/analyze',
+      userId,
+      clientIP
+    );
+    const remaining = Math.max(0, dailyLimit - todayUsage);
+
+    if (dailyLimit !== Infinity && todayUsage >= dailyLimit) {
+      statusCode = 429;
+      usageTracker.trackRequest({
+        ipAddress: clientIP,
+        userId,
+        endpoint: '/api/network/analyze',
+        method: 'POST',
+        userAgent,
+        statusCode,
+        responseTime: Date.now() - startTime,
+        rateLimitRemaining: 0,
+        wasRateLimited: true,
+      });
+
+      const upgradeMessage = !session
+        ? 'Sign in for more scans, or upgrade to Pro for 50 scans/day.'
+        : userTier === 'free'
+          ? 'Upgrade to Pro for 50 scans/day, or Enterprise for unlimited scans.'
+          : 'Upgrade to Enterprise for unlimited scans.';
+
+      return NextResponse.json(
+        {
+          error: 'Daily scan limit reached',
+          message: `You have used all ${dailyLimit} scans for today. ${upgradeMessage}`,
+          dailyLimit,
+          used: todayUsage,
+          remaining: 0,
+        },
+        { status: 429 }
+      );
+    }
+
+    // 4. Parse and validate input
     const body = await request.json();
     const { input } = body;
 
@@ -80,6 +153,7 @@ export async function POST(request: NextRequest) {
       statusCode = 400;
       usageTracker.trackRequest({
         ipAddress: clientIP,
+        userId,
         endpoint: '/api/network/analyze',
         method: 'POST',
         userAgent,
@@ -98,25 +172,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Determine user tier and apply limits
-    // TODO: Get actual user tier from session when auth is implemented
-    const userTier = 'FREE'; // Default to free tier
-    const limits = TIER_LIMITS[userTier];
+    console.log(`[NetworkAnalyze] Analyzing: ${input} (tier: ${userTier}, limit: ${domainLimit}, scans: ${todayUsage + 1}/${dailyLimit})`);
 
-    // For free tier, limit to 5 domains
-    const domainLimit = limits.domainsPerLookup;
-
-    console.log(`[NetworkAnalyze] Analyzing: ${input} (tier: ${userTier}, limit: ${domainLimit})`);
-
-    // 4. Perform network analysis with tech stack detection
+    // 5. Perform network analysis with tech stack detection
     const analysis = await networkAnalyzer.analyze(input, {
       limit: domainLimit,
-      detectTechStacks: true, // Enable tech stack detection
+      detectTechStacks: true,
     });
 
-    // 5. Track usage
+    // 6. Track usage
     usageTracker.trackRequest({
       ipAddress: clientIP,
+      userId,
       endpoint: '/api/network/analyze',
       method: 'POST',
       userAgent,
@@ -125,7 +192,25 @@ export async function POST(request: NextRequest) {
       rateLimitRemaining: rateLimitResult.remaining,
     });
 
-    // 6. Return results
+    // 6b. Save to search history for authenticated users (fire-and-forget)
+    if (userId) {
+      db.insert(searchHistory)
+        .values({
+          userId,
+          domain: input,
+          analysisType: 'network',
+          resultSummary: {
+            status: analysis.reverseIP ? `${analysis.reverseIP.totalDomains} domains found` : undefined,
+            isOnline: true,
+          },
+        })
+        .then(() => console.log(`[History] Saved network search for ${input} (user: ${userId})`))
+        .catch((err: unknown) => console.error('[History] Failed to save network search:', err));
+    }
+
+    // 7. Return results with usage info
+    const newRemaining = dailyLimit === Infinity ? -1 : remaining - 1;
+
     return NextResponse.json(
       {
         ...analysis,
@@ -135,6 +220,11 @@ export async function POST(request: NextRequest) {
             domainsShown: Math.min(analysis.reverseIP.totalDomains, domainLimit),
             totalDomainsFound: analysis.reverseIP.totalDomains,
             upgradeRequired: analysis.reverseIP.totalDomains > domainLimit,
+          },
+          usage: {
+            scansUsedToday: todayUsage + 1,
+            dailyLimit: dailyLimit === Infinity ? null : dailyLimit,
+            remaining: dailyLimit === Infinity ? null : newRemaining,
           },
         },
       },
@@ -147,7 +237,7 @@ export async function POST(request: NextRequest) {
         },
       }
     );
-  } catch (error: any) {
+  } catch (error) {
     console.error('[NetworkAnalyze] Error:', error);
 
     statusCode = 500;
@@ -165,7 +255,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'Analysis failed',
-        message: error.message || 'An error occurred while analyzing the network',
+        message: error instanceof Error ? error.message : 'An error occurred while analyzing the network',
       },
       { status: 500 }
     );

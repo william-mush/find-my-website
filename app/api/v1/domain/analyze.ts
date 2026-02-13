@@ -23,9 +23,6 @@ export async function POST(request: NextRequest) {
 
   let domain: string | undefined;
   let statusCode = 200;
-  let wasBlocked = false;
-  let wasRateLimited = false;
-  let wasInvalidInput = false;
   let rateLimitRemaining = 10;
 
   try {
@@ -33,7 +30,6 @@ export async function POST(request: NextRequest) {
     const ipStats = await usageTracker.getIPStats(clientIP);
     if (ipStats?.isBlocked && ipStats.blockedUntil && new Date() < ipStats.blockedUntil) {
       statusCode = 429;
-      wasBlocked = true;
 
       // Track this blocked request
       usageTracker.trackRequest({
@@ -69,7 +65,6 @@ export async function POST(request: NextRequest) {
 
     if (!rateLimitResult.success) {
       statusCode = 429;
-      wasRateLimited = true;
 
       // Track rate limit violation
       usageTracker.trackRequest({
@@ -132,7 +127,6 @@ export async function POST(request: NextRequest) {
 
     if (!validationResult.valid) {
       statusCode = 400;
-      wasInvalidInput = true;
 
       // Track invalid input attempt
       usageTracker.trackRequest({
@@ -313,7 +307,7 @@ export async function POST(request: NextRequest) {
       analyzedAt: new Date().toISOString(),
       analysisVersion: '2.0',
     }, { headers });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Domain analysis failed:', error);
     statusCode = 500;
 
@@ -331,7 +325,7 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(
-      { error: 'Analysis failed', message: error.message },
+      { error: 'Analysis failed', message: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

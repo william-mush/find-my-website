@@ -1,15 +1,77 @@
 /**
- * Next.js Proxy (formerly Middleware)
- * Adds security headers and CORS configuration
+ * Next.js Proxy (Next.js 16+)
+ * Generates per-request cryptographic nonces for Content Security Policy
+ * and applies security headers to all responses.
  */
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function proxy(request: NextRequest) {
-  const response = NextResponse.next();
+  // Generate a cryptographic nonce for this request
+  const nonce = crypto.randomUUID();
 
-  // Security Headers
+  // Build the Content Security Policy with the nonce
+  const cspDirectives = [
+    // Default: only allow same-origin
+    "default-src 'self'",
+
+    // Scripts: nonce-based with strict-dynamic for trusted script-loaded scripts
+    // 'strict-dynamic' allows scripts loaded by nonced scripts to execute
+    // 'unsafe-inline' is ignored when a nonce is present (fallback for older browsers)
+    `script-src 'nonce-${nonce}' 'strict-dynamic' 'self' https://vercel.live https://*.sentry-cdn.com`,
+
+    // Styles: nonce-based for inline styles
+    // 'unsafe-inline' is a fallback for browsers that don't support nonces
+    `style-src 'nonce-${nonce}' 'self' 'unsafe-inline'`,
+
+    // Images: self, data URIs, and known external sources
+    "img-src 'self' data: https://*.vercel.app https://avatars.githubusercontent.com https://lh3.googleusercontent.com",
+
+    // Fonts: self-hosted (Next.js google fonts are inlined)
+    "font-src 'self' data:",
+
+    // API connections: whitelist specific domains and Sentry error reporting
+    "connect-src 'self' https://*.vercel.app https://web.archive.org https://rdap.org https://dns.google https://hackertarget.com https://ipapi.is https://*.ingest.sentry.io",
+
+    // Worker source for Sentry session replay
+    "worker-src 'self' blob:",
+
+    // Frame ancestors: same-origin only (replaces X-Frame-Options)
+    "frame-ancestors 'self'",
+
+    // Base URI and form actions restricted to self
+    "base-uri 'self'",
+    "form-action 'self'",
+
+    // Block object/embed elements
+    "object-src 'none'",
+
+    // Block iframes
+    "frame-src 'none'",
+
+    // Upgrade HTTP to HTTPS
+    "upgrade-insecure-requests",
+
+    // Report violations to our endpoint
+    "report-uri /api/csp-report",
+  ].join('; ');
+
+  // Clone the request headers and set the nonce for downstream use
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-nonce', nonce);
+
+  const response = NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
+
+  // Use Content-Security-Policy-Report-Only for safe rollout
+  // Once verified, switch to Content-Security-Policy to enforce
+  response.headers.set('Content-Security-Policy-Report-Only', cspDirectives);
+
+  // Other security headers
   response.headers.set('X-DNS-Prefetch-Control', 'on');
   response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
   response.headers.set('X-Frame-Options', 'SAMEORIGIN');
@@ -18,44 +80,14 @@ export function proxy(request: NextRequest) {
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 
-  // Content Security Policy - Improved security
-  const csp = [
-    "default-src 'self'",
-    // Allow Next.js scripts + inline for dynamic imports (still requires unsafe-inline for now)
-    // TODO: Use nonces for inline scripts in future
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://vercel.live",
-    // Tailwind requires unsafe-inline for dynamic styles
-    // TODO: Extract critical CSS and use CSP hash
-    "style-src 'self' 'unsafe-inline'",
-    // Restrict images to self, data URIs, and specific external sources
-    "img-src 'self' data: https://*.vercel.app https://avatars.githubusercontent.com https://lh3.googleusercontent.com",
-    "font-src 'self' data:",
-    // API connections - whitelist specific domains
-    "connect-src 'self' https://*.vercel.app https://web.archive.org https://rdap.org https://dns.google https://hackertarget.com https://ipapi.is",
-    "frame-ancestors 'self'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    // Block object/embed for extra protection
-    "object-src 'none'",
-    "frame-src 'none'",
-    // Upgrade insecure requests
-    "upgrade-insecure-requests",
-  ].join('; ');
-
-  response.headers.set('Content-Security-Policy', csp);
+  // Pass the nonce in a response header for debugging (non-sensitive, single-use)
+  response.headers.set('x-nonce', nonce);
 
   // CORS Headers for API routes
   if (request.nextUrl.pathname.startsWith('/api/')) {
-    // Allow specific origins (adjust as needed)
-    const allowedOrigins = [
-      'https://find-my-website.vercel.app',
-      'https://find-my-website-*.vercel.app',
-      process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
-    ].filter(Boolean);
-
     const origin = request.headers.get('origin');
 
-    // Check if origin is allowed (simplified - matches vercel.app domains)
+    // Check if origin is allowed
     const isAllowed = origin && (
       origin.includes('vercel.app') ||
       origin.includes('localhost') ||

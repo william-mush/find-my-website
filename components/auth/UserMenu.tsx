@@ -6,6 +6,7 @@
 'use client';
 
 import { useSession, signOut } from 'next-auth/react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
 
@@ -61,9 +62,11 @@ export default function UserMenu() {
         className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 transition-colors"
       >
         {session.user?.image ? (
-          <img
+          <Image
             src={session.user.image}
             alt={session.user.name || 'User'}
+            width={40}
+            height={40}
             className="h-10 w-10 rounded-full border-2 border-gray-200"
           />
         ) : (
@@ -122,6 +125,13 @@ export default function UserMenu() {
               onClick={() => setIsOpen(false)}
             >
               Billing
+            </Link>
+            <Link
+              href="/dashboard/api-keys"
+              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              onClick={() => setIsOpen(false)}
+            >
+              API Keys
             </Link>
           </div>
 

@@ -37,6 +37,21 @@ export interface WaybackSummary {
   years: Map<number, number>; // year -> count
 }
 
+export interface WaybackRecoveryInfo {
+  available: boolean;
+  hasContent: boolean;
+  isComplete: boolean | null;
+  isRecent: boolean | null;
+  totalSnapshots: number;
+  firstSnapshot?: Date;
+  lastSnapshot?: Date;
+  bestSnapshot: WaybackSnapshot | null;
+  yearlyBreakdown: { year: number; count: number }[];
+  estimatedPages: number;
+  quality: string;
+  snapshots?: WaybackSnapshot[];
+}
+
 export class WaybackMachineAPI {
   private baseUrl: string;
   private cdxUrl: string;
@@ -138,7 +153,7 @@ export class WaybackMachineAPI {
       const rows = data.slice(1);
 
       return rows.map((row: string[]) => {
-        const obj: any = {};
+        const obj: Record<string, string> = {};
         headers.forEach((header: string, index: number) => {
           obj[header] = row[index];
         });
@@ -238,12 +253,12 @@ export class WaybackMachineAPI {
   /**
    * Get recovery-specific snapshot info (with caching)
    */
-  async getRecoveryInfo(domain: string) {
+  async getRecoveryInfo(domain: string): Promise<WaybackRecoveryInfo> {
     // Try cache first - Wayback data rarely changes
     return await cacheService.getOrSet(
       domain,
       async () => {
-        const [availability, summary, bestSnapshot] = await Promise.all([
+        const [, summary, bestSnapshot] = await Promise.all([
           this.checkAvailability(domain),
           this.getSnapshotSummary(domain),
           this.getBestSnapshot(domain),

@@ -78,7 +78,7 @@ export class DomainClassifier {
 
     // Check if major brand
     if (this.majorBrands.has(cleanDomain)) {
-      return this.classifyMajorBrand(cleanDomain);
+      return this.classifyMajorBrand();
     }
 
     // Check if premium pattern (short domain, etc.)
@@ -92,13 +92,13 @@ export class DomainClassifier {
     }
 
     // Standard domain
-    return this.classifyStandard(cleanDomain, domainAge, traffic, backlinks);
+    return this.classifyStandard(cleanDomain, domainAge, traffic);
   }
 
   /**
    * Major brand classification
    */
-  private classifyMajorBrand(domain: string): DomainClassification {
+  private classifyMajorBrand(): DomainClassification {
     return {
       type: 'MAJOR_BRAND',
       tier: 1,
@@ -250,8 +250,7 @@ export class DomainClassifier {
   private classifyStandard(
     domain: string,
     domainAge?: number,
-    traffic?: number,
-    backlinks?: number
+    traffic?: number
   ): DomainClassification {
     let min = 100;
     let max = 5000;

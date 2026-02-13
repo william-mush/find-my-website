@@ -62,7 +62,7 @@ export function DomainSearch({ onSearch, isLoading }: DomainSearchProps) {
       </form>
 
       <div className="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">
-        <p>Try: google.com, expired-domain.com, or any domain you're interested in</p>
+        <p>Try: google.com, expired-domain.com, or any domain you&apos;re interested in</p>
       </div>
     </div>
   );

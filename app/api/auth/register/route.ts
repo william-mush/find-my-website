@@ -8,7 +8,7 @@ import { db } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
-import { inputValidator } from '@/lib/security/input-validator';
+
 
 export async function POST(request: NextRequest) {
   try {
@@ -96,10 +96,10 @@ export async function POST(request: NextRequest) {
       },
     }, { status: 201 });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Registration error:', error);
     return NextResponse.json(
-      { error: 'Registration failed', message: error.message },
+      { error: 'Registration failed', message: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

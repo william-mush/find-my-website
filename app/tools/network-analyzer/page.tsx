@@ -5,7 +5,9 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 
 interface Technology {
   name: string;
@@ -83,14 +85,47 @@ interface NetworkResult {
       totalDomainsFound: number;
       upgradeRequired: boolean;
     };
+    usage?: {
+      scansUsedToday: number;
+      dailyLimit: number | null;
+      remaining: number | null;
+    };
   };
 }
 
+interface UsageInfo {
+  tier: string;
+  authenticated: boolean;
+  scansUsedToday: number;
+  dailyLimit: number | null; // null means unlimited
+  remaining: number | null;  // null means unlimited
+}
+
 export default function NetworkAnalyzerPage() {
+  const { data: session } = useSession();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<NetworkResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [limitReached, setLimitReached] = useState(false);
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
+
+  const fetchUsage = useCallback(async () => {
+    try {
+      const res = await fetch('/api/network/usage');
+      if (res.ok) {
+        const data = await res.json();
+        setUsage(data);
+      }
+    } catch {
+      // Silently fail - usage info is non-critical
+    }
+  }, []);
+
+  // Fetch usage on mount and when session changes
+  useEffect(() => {
+    fetchUsage();
+  }, [fetchUsage, session]);
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,6 +138,7 @@ export default function NetworkAnalyzerPage() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setLimitReached(false);
 
     try {
       const response = await fetch('/api/network/analyze', {
@@ -115,13 +151,31 @@ export default function NetworkAnalyzerPage() {
 
       const data = await response.json();
 
+      if (response.status === 429) {
+        setLimitReached(true);
+        setError(data.message || 'You have reached your daily scan limit.');
+        fetchUsage();
+        return;
+      }
+
       if (!response.ok) {
         throw new Error(data.message || data.error || 'Analysis failed');
       }
 
       setResult(data);
-    } catch (err: any) {
-      setError(err.message || 'An error occurred');
+
+      // Update usage from response meta
+      if (data.meta?.usage) {
+        setUsage((prev) => prev ? {
+          ...prev,
+          scansUsedToday: data.meta.usage.scansUsedToday,
+          remaining: data.meta.usage.remaining,
+        } : prev);
+      }
+    } catch (err) {
+      if (!limitReached) {
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      }
     } finally {
       setLoading(false);
     }
@@ -139,6 +193,48 @@ export default function NetworkAnalyzerPage() {
             Discover all domains on the same IP address and analyze hosting infrastructure
           </p>
         </div>
+
+        {/* Usage Info Bar */}
+        {usage && usage.dailyLimit !== null && (
+          <div className="mb-6 flex items-center justify-between bg-white rounded-xl shadow-sm px-6 py-3">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-600">
+                Scans today: <span className="font-semibold text-gray-900">{usage.scansUsedToday}</span>
+                {' / '}
+                <span className="font-semibold text-gray-900">{usage.dailyLimit}</span>
+              </span>
+              {usage.remaining !== null && usage.remaining <= 2 && usage.remaining > 0 && (
+                <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-medium">
+                  {usage.remaining} scan{usage.remaining !== 1 ? 's' : ''} remaining
+                </span>
+              )}
+              {usage.remaining === 0 && (
+                <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-medium">
+                  Limit reached
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-500 capitalize">{usage.tier} tier</span>
+              {!usage.authenticated && (
+                <Link
+                  href="/auth/signin"
+                  className="text-xs font-medium text-purple-600 hover:text-purple-800"
+                >
+                  Sign in for more
+                </Link>
+              )}
+              {usage.authenticated && usage.tier === 'free' && (
+                <Link
+                  href="/billing"
+                  className="text-xs font-medium text-purple-600 hover:text-purple-800"
+                >
+                  Upgrade plan
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Search Form */}
         <div className="bg-white rounded-2xl shadow-xl p-8 mb-8">
@@ -162,7 +258,34 @@ export default function NetworkAnalyzerPage() {
             </div>
           </form>
 
-          {error && (
+          {/* Limit reached error with upgrade prompt */}
+          {error && limitReached && (
+            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-amber-800 font-medium mb-2">Daily scan limit reached</p>
+              <p className="text-amber-700 text-sm mb-3">{error}</p>
+              <div className="flex gap-3">
+                {!session && (
+                  <Link
+                    href="/auth/signin"
+                    className="text-sm font-medium text-purple-600 hover:text-purple-800 underline"
+                  >
+                    Sign in
+                  </Link>
+                )}
+                {session && (
+                  <Link
+                    href="/billing"
+                    className="text-sm font-medium text-purple-600 hover:text-purple-800 underline"
+                  >
+                    Upgrade your plan
+                  </Link>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* General errors (non-429) */}
+          {error && !limitReached && (
             <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-600">
               {error}
             </div>

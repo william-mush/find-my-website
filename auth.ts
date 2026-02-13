@@ -102,12 +102,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
 
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn() {
       // Allow all sign-ins (email linking handled by allowDangerousEmailAccountLinking)
       return true;
     },
 
-    async jwt({ token, user, account }) {
+    async jwt({ token, user }) {
       // Add user ID to token on initial sign in
       if (user) {
         token.id = user.id;

@@ -2,8 +2,21 @@
 
 import { useState } from 'react';
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+interface DomainAnalysisData {
+  domain: string;
+  statusReport: any;
+  whois: any;
+  wayback: any;
+  dns: any;
+  website: any;
+  security: any;
+  seo: any;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 interface DomainResultsProps {
-  data: any;
+  data: DomainAnalysisData;
 }
 
 export function DomainResults({ data }: DomainResultsProps) {
@@ -73,12 +86,12 @@ export function DomainResults({ data }: DomainResultsProps) {
             <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
               {domain}
             </h2>
-            <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium \${getStatusColor(statusReport.status)}`}>
+            <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(statusReport.status)}`}>
               {statusReport.status.replace(/_/g, ' ')}
             </span>
           </div>
           <div className="text-right">
-            <div className={`text-2xl font-bold \${getDifficultyColor(statusReport.recoveryDifficulty)}`}>
+            <div className={`text-2xl font-bold ${getDifficultyColor(statusReport.recoveryDifficulty)}`}>
               {statusReport.recoveryDifficulty}
             </div>
             <div className="text-sm text-gray-500 dark:text-gray-400">Recovery Difficulty</div>
@@ -122,8 +135,8 @@ export function DomainResults({ data }: DomainResultsProps) {
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex-1 min-w-fit py-3 px-3 md:px-5 text-center border-b-3 font-semibold transition-all duration-200 flex flex-col items-center justify-center gap-1 \${
+                onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                className={`flex-1 min-w-fit py-3 px-3 md:px-5 text-center border-b-3 font-semibold transition-all duration-200 flex flex-col items-center justify-center gap-1 ${
                   activeTab === tab.id
                     ? 'border-b-4 border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
                     : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700/30'
@@ -328,7 +341,7 @@ export function DomainResults({ data }: DomainResultsProps) {
                         </tr>
                       </thead>
                       <tbody>
-                        {dns.mailServers.map((mx: any, i: number) => (
+                        {dns.mailServers.map((mx: { priority: number; hostname: string }, i: number) => (
                           <tr key={i} className="border-t border-gray-200 dark:border-gray-600">
                             <td className="py-2 text-gray-900 dark:text-gray-100">{mx.priority}</td>
                             <td className="py-2 font-mono text-sm text-gray-900 dark:text-gray-100">{mx.hostname}</td>
@@ -384,7 +397,7 @@ export function DomainResults({ data }: DomainResultsProps) {
                 <div>
                   <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">TXT Records</h4>
                   <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-2">
-                    {dns.records.TXT.map((record: any, i: number) => (
+                    {dns.records.TXT.map((record: { value: string }, i: number) => (
                       <div key={i} className="font-mono text-xs text-gray-700 dark:text-gray-300 break-all bg-white dark:bg-gray-800 p-2 rounded">
                         {record.value}
                       </div>
@@ -770,7 +783,7 @@ export function DomainResults({ data }: DomainResultsProps) {
                         Snapshots by Year
                       </h4>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        {wayback.yearlyBreakdown.map((item: any) => (
+                        {wayback.yearlyBreakdown.map((item: { year: number; count: number }) => (
                           <div key={item.year} className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-center">
                             <div className="text-lg font-bold text-gray-900 dark:text-white">
                               {item.count}

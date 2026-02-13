@@ -18,9 +18,9 @@ export async function fetchWithTimeout(
     });
     clearTimeout(timeout);
     return response;
-  } catch (error: any) {
+  } catch (error) {
     clearTimeout(timeout);
-    if (error.name === 'AbortError') {
+    if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`Request timeout after ${timeoutMs}ms`);
     }
     throw error;

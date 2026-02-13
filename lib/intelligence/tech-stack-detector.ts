@@ -54,7 +54,7 @@ export class TechStackDetector {
     const analytics: string[] = [];
     let cdn: string | null = null;
     let hostingPlatform: string | null = null;
-    let ssl: SSLInfo | null = null;
+    const ssl: SSLInfo | null = null;
 
     try {
       // Fetch homepage
@@ -165,8 +165,8 @@ export class TechStackDetector {
       });
 
       console.log(`[TechStackDetector] Detected ${technologies.length} technologies in ${Date.now() - startTime}ms`);
-    } catch (error: any) {
-      console.error(`[TechStackDetector] Error analyzing ${domain}:`, error.message);
+    } catch (error) {
+      console.error(`[TechStackDetector] Error analyzing ${domain}:`, error instanceof Error ? error.message : error);
     }
 
     return {

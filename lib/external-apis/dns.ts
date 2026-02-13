@@ -150,7 +150,7 @@ export class DNSAPI {
         return [];
       }
 
-      return data.Answer.map((record: any) => ({
+      return data.Answer.map((record: { type: number; name: string; data: string; TTL: number }) => ({
         type: this.getRecordTypeName(record.type),
         name: record.name,
         value: this.formatRecordValue(record.data, type),

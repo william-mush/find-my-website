@@ -49,10 +49,10 @@ export async function POST(request: NextRequest) {
         'Content-Disposition': `attachment; filename="${fileName}"`,
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Script generation failed:', error);
     return NextResponse.json(
-      { error: 'Script generation failed', message: error.message },
+      { error: 'Script generation failed', message: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

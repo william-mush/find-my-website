@@ -9,6 +9,7 @@ import { eq, sql, and, gte, lte } from 'drizzle-orm';
 
 export interface UsageRecord {
   ipAddress: string;
+  userId?: string;
   endpoint: string;
   domain?: string;
   method: string;
@@ -48,6 +49,7 @@ export class UsageTracker {
   private async recordUsage(record: UsageRecord): Promise<void> {
     await db.insert(apiUsage).values({
       ipAddress: record.ipAddress,
+      userId: record.userId,
       endpoint: record.endpoint,
       domain: record.domain,
       method: record.method,
@@ -90,7 +92,8 @@ export class UsageTracker {
       });
     } else {
       // Update existing record
-      const updates: any = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updates: Record<string, any> = {
         totalRequests: sql`${ipAbuse.totalRequests} + 1`,
         lastSeen: now,
       };
@@ -200,6 +203,41 @@ export class UsageTracker {
     }
 
     return `Auto-blocked: ${reasons.join(', ')}`;
+  }
+
+  /**
+   * Get the number of successful requests for a user/IP on a specific endpoint today
+   */
+  async getDailyUsageCount(endpoint: string, userId?: string, ipAddress?: string): Promise<number> {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    try {
+      // Count by userId if available, otherwise by IP
+      const condition = userId
+        ? and(
+            eq(apiUsage.endpoint, endpoint),
+            eq(apiUsage.userId, userId),
+            eq(apiUsage.statusCode, 200),
+            gte(apiUsage.requestedAt, startOfDay)
+          )
+        : and(
+            eq(apiUsage.endpoint, endpoint),
+            eq(apiUsage.ipAddress, ipAddress || ''),
+            eq(apiUsage.statusCode, 200),
+            gte(apiUsage.requestedAt, startOfDay)
+          );
+
+      const result = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(apiUsage)
+        .where(condition);
+
+      return result[0]?.count || 0;
+    } catch (error) {
+      console.error('Failed to get daily usage count:', error);
+      return 0;
+    }
   }
 
   /**

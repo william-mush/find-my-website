@@ -76,7 +76,7 @@ export class WebsiteAnalyzer {
     const startTime = Date.now();
     let isOnline = false;
     let httpStatus: number | undefined;
-    let headers: { [key: string]: string } = {};
+    const headers: { [key: string]: string } = {};
 
     try {
       const response = await fetchWithTimeout(
@@ -102,7 +102,7 @@ export class WebsiteAnalyzer {
     const responseTime = Date.now() - startTime;
 
     const technologies = this.detectTechnologies(headers);
-    const hosting = this.detectHosting(headers, cleanDomain);
+    const hosting = this.detectHosting(headers);
     const security = this.analyzeSecurityHeaders(headers);
     const server = this.detectServer(headers);
 
@@ -113,7 +113,7 @@ export class WebsiteAnalyzer {
       responseTime,
       ssl: {
         enabled: true, // Assuming HTTPS worked
-        certificate: this.parseSSLFromHeaders(headers),
+        certificate: this.parseSSLFromHeaders(),
       },
       server,
       technologies,
@@ -164,7 +164,6 @@ export class WebsiteAnalyzer {
 
     // CMS Detection
     const poweredBy = headers['x-powered-by']?.toLowerCase() || '';
-    const server = headers['server']?.toLowerCase() || '';
 
     if (poweredBy.includes('wordpress') || headers['x-wp-version']) {
       technologies.cms = 'WordPress';
@@ -216,22 +215,21 @@ export class WebsiteAnalyzer {
    * Detect hosting provider
    */
   private detectHosting(
-    headers: { [key: string]: string },
-    domain: string
+    headers: { [key: string]: string }
   ): WebsiteAnalysis['hosting'] {
     const cdn = this.detectCDN(headers);
-    const server = headers['server']?.toLowerCase() || '';
+    const serverHeader = headers['server']?.toLowerCase() || '';
 
     let provider: string | undefined;
     let cloudProvider: string | undefined;
 
     // Vercel
-    if (headers['x-vercel-id'] || server.includes('vercel')) {
+    if (headers['x-vercel-id'] || serverHeader.includes('vercel')) {
       provider = 'Vercel';
       cloudProvider = 'Vercel Edge Network';
     }
     // Netlify
-    else if (headers['x-nf-request-id'] || server.includes('netlify')) {
+    else if (headers['x-nf-request-id'] || serverHeader.includes('netlify')) {
       provider = 'Netlify';
     }
     // AWS
@@ -239,11 +237,11 @@ export class WebsiteAnalyzer {
       cloudProvider = 'Amazon Web Services (AWS)';
     }
     // Google Cloud
-    else if (server.includes('gws') || headers['x-goog-']) {
+    else if (serverHeader.includes('gws') || headers['x-goog-']) {
       cloudProvider = 'Google Cloud Platform';
     }
     // Azure
-    else if (server.includes('azure') || headers['x-ms-']) {
+    else if (serverHeader.includes('azure') || headers['x-ms-']) {
       cloudProvider = 'Microsoft Azure';
     }
     // Cloudflare Pages/Workers
@@ -288,7 +286,7 @@ export class WebsiteAnalyzer {
   /**
    * Parse SSL certificate info from headers (limited without direct cert access)
    */
-  private parseSSLFromHeaders(headers: { [key: string]: string }): SSLCertificate | undefined {
+  private parseSSLFromHeaders(): SSLCertificate | undefined {
     // Most headers don't expose cert details, would need separate SSL check
     return undefined;
   }
