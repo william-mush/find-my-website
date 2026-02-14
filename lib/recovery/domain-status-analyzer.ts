@@ -94,13 +94,17 @@ export class DomainStatusAnalyzer {
     // A domain is considered registered if it has:
     // 1. A registrar field, OR
     // 2. A createdDate (indicates registration), OR
-    // 3. Registrant information
+    // 3. Registrant information, OR
+    // 4. DNS records resolve (A records or nameservers exist), OR
+    // 5. Website is online
     const hasRegistrar = whoisData?.registrar && whoisData.registrar !== 'AVAILABLE';
     const hasCreatedDate = whoisData?.createdDate;
     const hasRegistrant = whoisData?.registrant?.name || whoisData?.registrant?.email;
-    const isRegistered = hasRegistrar || hasCreatedDate || hasRegistrant;
+    const hasDnsRecords = dnsInfo?.hasARecords || dnsInfo?.nameserversResolve;
+    const isOnline = websiteActive === true;
+    const isRegistered = hasRegistrar || hasCreatedDate || hasRegistrant || hasDnsRecords || isOnline;
 
-    if (!whoisData || !isRegistered) {
+    if (!isRegistered) {
       report.status = 'AVAILABLE';
       report.isRegistered = false;
       report.recoveryDifficulty = 'EASY';
@@ -113,14 +117,14 @@ export class DomainStatusAnalyzer {
     }
 
     report.isRegistered = true;
-    if (whoisData.registrar) {
+    if (whoisData?.registrar) {
       report.registrar = whoisData.registrar;
     }
 
-    if (whoisData.registrarAbuseEmail || whoisData.registrarAbusePhone) {
+    if (whoisData?.registrarAbuseEmail || whoisData?.registrarAbusePhone) {
       report.registrarContact = {
-        email: whoisData.registrarAbuseEmail,
-        phone: whoisData.registrarAbusePhone,
+        email: whoisData?.registrarAbuseEmail,
+        phone: whoisData?.registrarAbusePhone,
       };
     }
 
@@ -149,7 +153,7 @@ export class DomainStatusAnalyzer {
     }
 
     // Check expiry status
-    if (whoisData.expiryDate) {
+    if (whoisData?.expiryDate) {
       report.expiryDate = whoisData.expiryDate;
       const now = new Date();
       const expiryTime = whoisData.expiryDate.getTime();
@@ -265,7 +269,7 @@ export class DomainStatusAnalyzer {
           report.opportunities.push('Contact owner with purchase offer');
           report.opportunities.push('Check if domain is listed for sale on aftermarket');
           report.opportunities.push('Contact registrar for owner information');
-        } else if (this.isForSaleIndicator(whoisData)) {
+        } else if (whoisData && this.isForSaleIndicator(whoisData)) {
           report.status = 'ACTIVE_FOR_SALE';
           report.isForSale = true;
           report.recoveryDifficulty = 'MODERATE';
