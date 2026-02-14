@@ -37,15 +37,14 @@ export class RateLimiter {
     limit: number = 10,
     windowSeconds: number = 60
   ): Promise<RateLimitResult> {
-    // If Redis not available, fail closed (deny request)
+    // If Redis not available, fail open (allow request)
     if (!this.redis) {
-      console.error('Redis not configured, rate limiting unavailable - denying request');
+      console.warn('Redis not configured, rate limiting disabled - allowing request');
       return {
-        success: false,
+        success: true,
         limit,
-        remaining: 0,
+        remaining: limit,
         reset: Date.now() + windowSeconds * 1000,
-        retryAfter: 60,
       };
     }
 

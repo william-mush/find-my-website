@@ -10,6 +10,7 @@ export type DomainStatus =
   | 'ACTIVE_IN_USE'
   | 'ACTIVE_PARKED'
   | 'ACTIVE_FOR_SALE'
+  | 'ACTIVE_HOSTING_ISSUE'
   | 'EXPIRED_GRACE'
   | 'EXPIRED_REDEMPTION'
   | 'PENDING_DELETE'
@@ -62,7 +63,8 @@ export class DomainStatusAnalyzer {
     domain: string,
     whoisData?: WhoisData,
     hasWaybackContent?: boolean,
-    websiteActive?: boolean
+    websiteActive?: boolean,
+    dnsInfo?: { hasARecords: boolean; nameserversResolve: boolean }
   ): Promise<DomainStatusReport> {
     // Get intelligent classification
     const domainAge = whoisData?.createdDate
@@ -208,6 +210,37 @@ export class DomainStatusAnalyzer {
           report.warnings.push('Success rate depends on domain popularity');
         }
       }
+    }
+
+    // Check for active hosting issue
+    // Domain is registered, not expired, website is down, but DNS has A records
+    // This indicates a hosting/server problem rather than a domain ownership issue
+    if (
+      report.status === 'UNKNOWN' &&
+      report.isRegistered &&
+      (report.daysUntilExpiry === undefined || report.daysUntilExpiry > 0) &&
+      websiteActive === false &&
+      dnsInfo?.hasARecords === true
+    ) {
+      report.status = 'ACTIVE_HOSTING_ISSUE';
+      report.isActive = true;
+      report.recoveryDifficulty = 'MODERATE';
+      report.estimatedCost = { min: 0, max: 100, currency: 'USD' };
+      report.estimatedTimeWeeks = 0;
+      report.successRate = 90;
+      report.reasons.push(
+        'Domain is registered and DNS is configured, but the website is not responding'
+      );
+      report.opportunities.push(
+        'Your domain registration is fine - this appears to be a hosting issue'
+      );
+      report.opportunities.push(
+        'Check your web server or hosting provider for outages'
+      );
+      report.opportunities.push(
+        'Verify your hosting account is active and properly configured'
+      );
+      return report;
     }
 
     // Active domain analysis

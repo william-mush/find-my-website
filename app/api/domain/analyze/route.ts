@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     // API key users get their own rate limit bucket (keyed by keyId) with a higher limit.
     // Anonymous/session users get the stricter IP-based limit (3/min).
     const rateLimitKey = apiKeyAuth ? `apikey:${apiKeyAuth.keyId}` : clientIP;
-    const rateLimitMax = apiKeyAuth ? apiKeyAuth.rateLimit : 3;
+    const rateLimitMax = apiKeyAuth ? apiKeyAuth.rateLimit : 10;
     const rateLimitWindow = apiKeyAuth ? 3600 : 60; // API keys: per hour; anonymous: per minute
     const rateLimitResult = await rateLimiter.checkLimit(rateLimitKey, rateLimitMax, rateLimitWindow);
     rateLimitRemaining = rateLimitResult.remaining;
@@ -212,9 +212,13 @@ export async function POST(request: NextRequest) {
           cleanDomain,
           whoisData,
           waybackData?.hasContent,
-          websiteData?.isOnline
+          websiteData?.isOnline,
+          dnsData ? {
+            hasARecords: (dnsData.ipAddresses?.ipv4?.length ?? 0) > 0,
+            nameserversResolve: (dnsData.nameservers?.length ?? 0) > 0,
+          } : undefined
         ),
-        1000
+        2000
       ),
     ]);
 

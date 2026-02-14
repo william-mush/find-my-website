@@ -1,6 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import { RecoveryGuide } from './RecoveryGuide';
+import { TriageQuestionnaire } from './TriageQuestionnaire';
+import { HelpTooltip } from '@/components/ui/HelpTooltip';
+import { GLOSSARY } from '@/lib/content/glossary';
+import type { RecoveryContext } from '@/lib/recovery/recovery-guide';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface DomainAnalysisData {
@@ -20,10 +25,23 @@ interface DomainResultsProps {
 }
 
 export function DomainResults({ data }: DomainResultsProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'dns' | 'website' | 'security' | 'seo' | 'recovery' | 'history'>('overview');
+  const [activeTab, setActiveTab] = useState<'recovery' | 'overview' | 'dns' | 'website' | 'security' | 'seo' | 'history'>('recovery');
   const [downloadingScript, setDownloadingScript] = useState(false);
+  const [recoveryContext, setRecoveryContext] = useState<RecoveryContext>({});
 
-  const { domain, statusReport, whois, wayback, dns, website, security, seo } = data;
+  const { domain, statusReport: rawStatusReport, whois, wayback, dns, website, security, seo } = data;
+
+  // Fallback for when status analysis times out or fails
+  const statusReport = rawStatusReport || {
+    status: 'UNKNOWN',
+    recoveryDifficulty: 'UNKNOWN',
+    estimatedCost: { min: 0, max: 0, currency: 'USD' },
+    estimatedTimeWeeks: 0,
+    successRate: 0,
+    opportunities: [],
+    warnings: ['Status analysis was unavailable. Try searching again for complete results.'],
+    reasons: [],
+  };
 
   const downloadScript = async (scriptType: 'bash' | 'nodejs' | 'python') => {
     setDownloadingScript(true);
@@ -40,7 +58,7 @@ export function DomainResults({ data }: DomainResultsProps) {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `recover-${domain.replace(/\\./g, '-')}.${scriptType === 'bash' ? 'sh' : scriptType === 'python' ? 'py' : 'js'}`;
+      a.download = `recover-${domain.replace(/\./g, '-')}.${scriptType === 'bash' ? 'sh' : scriptType === 'python' ? 'py' : 'js'}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -77,8 +95,26 @@ export function DomainResults({ data }: DomainResultsProps) {
     return colors[difficulty] || 'text-gray-600';
   };
 
+  /** Helper to get a plain-English trust score description */
+  const getTrustDescription = (score: number) => {
+    if (score >= 80) return 'This domain has an excellent reputation. It has been around for a long time and shows no signs of suspicious activity.';
+    if (score >= 60) return 'This domain has a good reputation. Nothing concerning was found, though it may be relatively new or have limited history.';
+    if (score >= 40) return 'This domain has a fair reputation. Some factors may warrant caution, such as limited history or missing security features.';
+    if (score >= 20) return 'This domain has a poor reputation. Several warning signs were detected. Exercise caution before interacting with it.';
+    return 'This domain has a very poor reputation. Multiple red flags were detected. Avoid sharing personal information on this site.';
+  };
+
   return (
     <div className="mt-8 max-w-6xl mx-auto">
+      {/* Partial results warning */}
+      {!rawStatusReport && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-6">
+          <p className="text-yellow-800 dark:text-yellow-200 text-sm">
+            <strong>Partial Results:</strong> Some analysis data was unavailable. The information below may be incomplete. Try searching again for full results.
+          </p>
+        </div>
+      )}
+
       {/* Domain Status Card */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-start justify-between mb-4">
@@ -120,17 +156,22 @@ export function DomainResults({ data }: DomainResultsProps) {
         </div>
       </div>
 
+      {/* Triage Questionnaire -- shown for all statuses except AVAILABLE and RESERVED */}
+      {statusReport.status !== 'AVAILABLE' && statusReport.status !== 'RESERVED' && (
+        <TriageQuestionnaire onContextChange={setRecoveryContext} />
+      )}
+
       {/* Tabs */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
         <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex -mb-px overflow-x-auto">
             {[
+              { id: 'recovery', label: 'Recovery Guide', icon: '🔧' },
               { id: 'overview', label: 'Overview', icon: '📊' },
               { id: 'dns', label: 'DNS', icon: '🌐' },
               { id: 'website', label: 'Website', icon: '💻' },
               { id: 'security', label: 'Security', icon: '🔒' },
               { id: 'seo', label: 'SEO', icon: '📈' },
-              { id: 'recovery', label: 'Recovery', icon: '🔧' },
               { id: 'history', label: 'History', icon: '📜' },
             ].map((tab) => (
               <button
@@ -150,18 +191,53 @@ export function DomainResults({ data }: DomainResultsProps) {
         </div>
 
         <div className="p-6">
+          {/* Recovery Guide Tab */}
+          {activeTab === 'recovery' && (
+            <RecoveryGuide
+              domain={domain}
+              statusReport={statusReport}
+              whois={whois}
+              wayback={wayback}
+              dns={dns}
+              recoveryContext={recoveryContext}
+              onDownloadScript={downloadScript}
+              downloadingScript={downloadingScript}
+            />
+          )}
+
+          {/* Overview Tab */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
+              {/* Plain English Summary */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-sm text-blue-900 dark:text-blue-200">
+                {whois ? (
+                  <p>
+                    Here is what we found about who owns <strong>{domain}</strong>.
+                    {whois.registrar && <> It is registered through <strong>{whois.registrar}</strong>.</>}
+                    {whois.expiryDate && <> The registration {new Date(whois.expiryDate) > new Date() ? 'expires' : 'expired'} on <strong>{new Date(whois.expiryDate).toLocaleDateString()}</strong>.</>}
+                    {whois.privacy && <> The owner&apos;s personal details are hidden behind a privacy service.</>}
+                  </p>
+                ) : (
+                  <p>We couldn&apos;t find ownership records for <strong>{domain}</strong>. This may mean the domain is not currently registered, or the WHOIS data is unavailable.</p>
+                )}
+              </div>
+
               {/* WHOIS Data */}
               {whois && (
                 <div>
                   <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-                    WHOIS Information
+                    <HelpTooltip term="WHOIS" explanation={GLOSSARY.whois.detailed}>
+                      WHOIS Information
+                    </HelpTooltip>
                   </h3>
                   <div className="grid md:grid-cols-2 gap-4">
                     {whois.registrar && (
                       <div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Registrar</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                          <HelpTooltip term="Registrar" explanation={GLOSSARY.registrar.short}>
+                            Registrar
+                          </HelpTooltip>
+                        </div>
                         <div className="text-gray-900 dark:text-white">{whois.registrar}</div>
                       </div>
                     )}
@@ -183,7 +259,11 @@ export function DomainResults({ data }: DomainResultsProps) {
                     )}
                     {whois.nameservers && whois.nameservers.length > 0 && (
                       <div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Nameservers</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                          <HelpTooltip term="Nameservers" explanation={GLOSSARY.nameserver.short}>
+                            Nameservers
+                          </HelpTooltip>
+                        </div>
                         <div className="text-gray-900 dark:text-white">
                           {whois.nameservers.join(', ')}
                         </div>
@@ -196,9 +276,12 @@ export function DomainResults({ data }: DomainResultsProps) {
               {/* Wayback Data */}
               {wayback && wayback.available && (
                 <div>
-                  <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+                  <h3 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">
                     Wayback Machine Data
                   </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    The Wayback Machine has saved <strong>{wayback.totalSnapshots?.toLocaleString()}</strong> copies of this website over time. These archived snapshots can help you recover lost content.
+                  </p>
                   <div className="grid md:grid-cols-3 gap-4">
                     <div>
                       <div className="text-sm text-gray-500 dark:text-gray-400">Total Snapshots</div>
@@ -224,86 +307,33 @@ export function DomainResults({ data }: DomainResultsProps) {
             </div>
           )}
 
-          {activeTab === 'recovery' && (
-            <div className="space-y-6">
-              {/* Opportunities */}
-              {statusReport.opportunities.length > 0 && (
-                <div>
-                  <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-                    Recovery Opportunities
-                  </h3>
-                  <ul className="space-y-2">
-                    {statusReport.opportunities.map((opportunity: string, index: number) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <span className="text-green-500 mt-1">✓</span>
-                        <span className="text-gray-700 dark:text-gray-300">{opportunity}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Warnings */}
-              {statusReport.warnings.length > 0 && (
-                <div>
-                  <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-                    Important Warnings
-                  </h3>
-                  <ul className="space-y-2">
-                    {statusReport.warnings.map((warning: string, index: number) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <span className="text-yellow-500 mt-1">⚠</span>
-                        <span className="text-gray-700 dark:text-gray-300">{warning}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Download Recovery Scripts */}
-              {wayback && wayback.available && (
-                <div>
-                  <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-                    Download Recovery Script
-                  </h3>
-                  <p className="text-gray-600 dark:text-gray-300 mb-4">
-                    Download a custom script to recover your website content from the Wayback Machine.
-                  </p>
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      onClick={() => downloadScript('bash')}
-                      disabled={downloadingScript}
-                      className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-                    >
-                      Download Bash Script
-                    </button>
-                    <button
-                      onClick={() => downloadScript('nodejs')}
-                      disabled={downloadingScript}
-                      className="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-                    >
-                      Download Node.js Script
-                    </button>
-                    <button
-                      onClick={() => downloadScript('python')}
-                      disabled={downloadingScript}
-                      className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-                    >
-                      Download Python Script
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
+          {/* DNS Tab */}
           {activeTab === 'dns' && dns && (
             <div className="space-y-6">
-              <h3 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">DNS Records</h3>
+              <h3 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
+                <HelpTooltip term="DNS" explanation={GLOSSARY.dns.short}>
+                  DNS Records
+                </HelpTooltip>
+              </h3>
+
+              {/* Plain English DNS Summary */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-sm text-blue-900 dark:text-blue-200">
+                <p>
+                  {dns.ipAddresses?.ipv4?.length > 0 && <>Your domain points to server{dns.ipAddresses.ipv4.length > 1 ? 's' : ''} at <strong>{dns.ipAddresses.ipv4.join(', ')}</strong>. </>}
+                  {dns.mailServers?.length > 0 && <>Email for this domain is handled by <strong>{dns.mailServers[0]?.hostname}</strong>. </>}
+                  {dns.emailSecurity?.hasSPF && dns.emailSecurity?.hasDMARC
+                    ? 'Email security is properly configured.'
+                    : 'Email security could be improved.'}
+                </p>
+              </div>
 
               {/* IP Addresses */}
               <div>
-                <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">IP Addresses</h4>
+                <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                  <HelpTooltip term="IP Address" explanation={GLOSSARY.ipAddress.short}>
+                    IP Addresses
+                  </HelpTooltip>
+                </h4>
                 <div className="grid md:grid-cols-2 gap-4">
                   {dns.ipAddresses.ipv4.length > 0 && (
                     <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
@@ -331,7 +361,11 @@ export function DomainResults({ data }: DomainResultsProps) {
               {/* Mail Servers */}
               {dns.mailServers.length > 0 && (
                 <div>
-                  <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Mail Servers (MX)</h4>
+                  <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                    <HelpTooltip term="MX Record" explanation={GLOSSARY.mxRecord.short}>
+                      Mail Servers (MX)
+                    </HelpTooltip>
+                  </h4>
                   <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
                     <table className="w-full">
                       <thead>
@@ -358,13 +392,21 @@ export function DomainResults({ data }: DomainResultsProps) {
                 <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Email Security</h4>
                 <div className="grid md:grid-cols-3 gap-4">
                   <div className={`p-4 rounded-lg ${dns.emailSecurity.hasSPF ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
-                    <div className="text-sm font-medium mb-1">SPF Record</div>
+                    <div className="text-sm font-medium mb-1">
+                      <HelpTooltip term="SPF" explanation={GLOSSARY.spf.short}>
+                        SPF Record
+                      </HelpTooltip>
+                    </div>
                     <div className={`text-lg font-bold ${dns.emailSecurity.hasSPF ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                       {dns.emailSecurity.hasSPF ? '✓ Configured' : '✗ Missing'}
                     </div>
                   </div>
                   <div className={`p-4 rounded-lg ${dns.emailSecurity.hasDMARC ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
-                    <div className="text-sm font-medium mb-1">DMARC Record</div>
+                    <div className="text-sm font-medium mb-1">
+                      <HelpTooltip term="DMARC" explanation={GLOSSARY.dmarc.short}>
+                        DMARC Record
+                      </HelpTooltip>
+                    </div>
                     <div className={`text-lg font-bold ${dns.emailSecurity.hasDMARC ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                       {dns.emailSecurity.hasDMARC ? '✓ Configured' : '✗ Missing'}
                     </div>
@@ -381,7 +423,11 @@ export function DomainResults({ data }: DomainResultsProps) {
               {/* Nameservers */}
               {dns.nameservers.length > 0 && (
                 <div>
-                  <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Nameservers</h4>
+                  <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                    <HelpTooltip term="Nameserver" explanation={GLOSSARY.nameserver.short}>
+                      Nameservers
+                    </HelpTooltip>
+                  </h4>
                   <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
                     <ul className="space-y-2">
                       {dns.nameservers.map((ns: string, i: number) => (
@@ -395,7 +441,11 @@ export function DomainResults({ data }: DomainResultsProps) {
               {/* TXT Records */}
               {dns.records.TXT.length > 0 && (
                 <div>
-                  <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">TXT Records</h4>
+                  <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                    <HelpTooltip term="TXT Record" explanation={GLOSSARY.txtRecord.short}>
+                      TXT Records
+                    </HelpTooltip>
+                  </h4>
                   <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-2">
                     {dns.records.TXT.map((record: { value: string }, i: number) => (
                       <div key={i} className="font-mono text-xs text-gray-700 dark:text-gray-300 break-all bg-white dark:bg-gray-800 p-2 rounded">
@@ -408,9 +458,24 @@ export function DomainResults({ data }: DomainResultsProps) {
             </div>
           )}
 
+          {/* Website Tab */}
           {activeTab === 'website' && website && (
             <div className="space-y-6">
-              <h3 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Website Analysis</h3>
+              <h3 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">Website Analysis</h3>
+
+              {/* Plain English Website Summary */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-sm text-blue-900 dark:text-blue-200">
+                <p>
+                  {website.isOnline
+                    ? <>This website is <strong>currently online</strong> and responded in {website.responseTime}ms. </>
+                    : <>This website is <strong>currently offline</strong> or unreachable. </>}
+                  {website.ssl?.enabled
+                    ? 'It has a valid security certificate (SSL), so connections are encrypted. '
+                    : 'It does not have a security certificate (SSL), which means connections are not encrypted. '}
+                  {website.hosting?.provider && <>It appears to be hosted by <strong>{website.hosting.provider}</strong>. </>}
+                  {website.technologies?.cms && <>The site runs on <strong>{website.technologies.cms}</strong>, which is useful to know if you need to rebuild it.</>}
+                </p>
+              </div>
 
               {/* Status */}
               <div className="grid md:grid-cols-4 gap-4">
@@ -421,7 +486,11 @@ export function DomainResults({ data }: DomainResultsProps) {
                   </div>
                 </div>
                 <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50">
-                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">HTTP Status</div>
+                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
+                    <HelpTooltip term="HTTP Status" explanation={GLOSSARY.httpStatus.short}>
+                      HTTP Status
+                    </HelpTooltip>
+                  </div>
                   <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{website.httpStatus || 'N/A'}</div>
                 </div>
                 <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50">
@@ -429,7 +498,11 @@ export function DomainResults({ data }: DomainResultsProps) {
                   <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{website.responseTime}ms</div>
                 </div>
                 <div className={`p-4 rounded-lg ${website.ssl.enabled ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
-                  <div className="text-sm font-medium mb-1">SSL</div>
+                  <div className="text-sm font-medium mb-1">
+                    <HelpTooltip term="SSL" explanation={GLOSSARY.ssl.short}>
+                      SSL
+                    </HelpTooltip>
+                  </div>
                   <div className={`text-lg font-bold ${website.ssl.enabled ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                     {website.ssl.enabled ? '✓ Enabled' : '✗ Disabled'}
                   </div>
@@ -452,7 +525,11 @@ export function DomainResults({ data }: DomainResultsProps) {
 
               {/* Server & Hosting */}
               <div>
-                <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Server & Hosting</h4>
+                <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                  <HelpTooltip term="Hosting" explanation={GLOSSARY.hosting.short}>
+                    Server &amp; Hosting
+                  </HelpTooltip>
+                </h4>
                 <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-2">
                   {website.server.software && (
                     <div className="flex justify-between">
@@ -474,7 +551,11 @@ export function DomainResults({ data }: DomainResultsProps) {
                   )}
                   {website.hosting.cdnProvider && (
                     <div className="flex justify-between">
-                      <span className="text-gray-500 dark:text-gray-400">CDN:</span>
+                      <span className="text-gray-500 dark:text-gray-400">
+                        <HelpTooltip term="CDN" explanation={GLOSSARY.cdn.short}>
+                          CDN
+                        </HelpTooltip>:
+                      </span>
                       <span className="font-medium text-gray-900 dark:text-gray-100">{website.hosting.cdnProvider}</span>
                     </div>
                   )}
@@ -538,9 +619,15 @@ export function DomainResults({ data }: DomainResultsProps) {
             </div>
           )}
 
+          {/* Security Tab */}
           {activeTab === 'security' && security && (
             <div className="space-y-6">
-              <h3 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Security Analysis</h3>
+              <h3 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">Security Analysis</h3>
+
+              {/* Plain English Security Summary */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-sm text-blue-900 dark:text-blue-200">
+                <p>{getTrustDescription(security.reputation.trustScore)}</p>
+              </div>
 
               {/* Trust Score */}
               <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg p-6">
